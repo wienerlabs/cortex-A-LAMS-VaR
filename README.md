@@ -176,6 +176,7 @@ calibrate_msm_advanced(returns, method='hybrid')
 
 ### Output Exemplu (BTC-USD)
 
+
 ```
 ============================================================
    MSM ADVANCED CALIBRATION - Method: HYBRID
@@ -194,7 +195,7 @@ calibrate_msm_advanced(returns, method='hybrid')
 
    --- Quality Metrics ---
    VaR breach rate: 5.02% (target: 5.0%)  ✅
-   Corr(|r|, σ):    0.684
+   Corr(|r|, σ):    0.3 (out-of-sample)
    Log-likelihood:  -8234.52
    AIC: 16475.04
    BIC: 16494.18
@@ -211,7 +212,7 @@ Conditional Coverage: LR=1.258 | p-value=0.5331 ✅ PASS
 | Metric | Valoare | Semnificație |
 |--------|---------|--------------|
 | VaR breach rate | 5.02% | Aproape exact 5% - model bine calibrat |
-| Corr(\|r\|, σ) | 0.684 | Volatilitatea estimată urmărește bine mișcările mari |
+| Corr(\|r\|, σ) | 0.3 | Volatilitatea estimată bună, dar necesită calibrări excedentare pentru o performanță mai înaltă  |
 | Kupiec p-value | 0.876 | ≥0.05 → Breach rate corect |
 | Christoffersen p-value | 0.267 | ≥0.05 → Breach-uri independente |
 
@@ -359,3 +360,4 @@ git push origin feature/NumeFeature
 <p align="center">
   <i>Proiect dezvoltat cu 📊 pentru înțelegerea riscului financiar</i>
 </p>
+
