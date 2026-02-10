@@ -104,6 +104,7 @@ _MODEL_REGISTRY: dict[str, tuple[str, int]] = {
     "rolling_20": ("Rolling-20d", 0),
     "rolling_60": ("Rolling-60d", 0),
     "ewma": ("EWMA", 1),
+    "rough_bergomi": ("Rough-Bergomi", 3),
 }
 
 
@@ -210,6 +211,9 @@ def _generate_all_forecasts(
             out[key] = rolling_vol_forecast(returns, window=60)
         elif key == "ewma":
             out[key] = ewma_vol_forecast(returns)
+        elif key == "rough_bergomi":
+            from rough_volatility import rough_bergomi_vol_series
+            out[key] = rough_bergomi_vol_series(returns)
         else:
             raise ValueError(f"Unknown model key: {key}")
 

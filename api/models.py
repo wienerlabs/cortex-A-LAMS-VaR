@@ -651,3 +651,87 @@ class FractalDiagnosticsResponse(BaseModel):
     is_long_range_dependent: bool
     confidence_z: float
     timestamp: datetime
+
+
+# ── Rough Volatility ─────────────────────────────────────────────────
+
+
+class RoughModel(str, Enum):
+    BERGOMI = "rough_bergomi"
+    HESTON = "rough_heston"
+
+
+class RoughCalibrateRequest(BaseModel):
+    token: str = Field(..., description="Token identifier (must be calibrated first via /calibrate)")
+    model: RoughModel = Field(RoughModel.BERGOMI, description="Rough volatility model variant")
+    window: int = Field(5, ge=2, le=60, description="Rolling window for realized vol")
+    max_lag: int = Field(50, ge=10, le=200, description="Max lag for variogram")
+
+
+class RoughCalibrationMetrics(BaseModel):
+    H_se: float
+    H_r_squared: float
+    vol_correlation: float
+    mae: float
+    is_rough: bool
+    optimization_success: bool | None = None
+    optimization_nit: int | None = None
+
+
+class RoughCalibrateResponse(BaseModel):
+    token: str
+    model: str
+    H: float = Field(..., description="Hurst exponent (H < 0.3 = rough)")
+    nu: float | None = Field(None, description="Vol-of-vol (rBergomi)")
+    lambda_: float | None = Field(None, description="Mean-reversion speed (rHeston)")
+    theta: float | None = Field(None, description="Long-run variance (rHeston)")
+    xi: float | None = Field(None, description="Vol-of-vol (rHeston)")
+    V0: float = Field(..., description="Initial variance")
+    metrics: RoughCalibrationMetrics
+    method: str
+    timestamp: datetime
+
+
+class RoughForecastResponse(BaseModel):
+    token: str
+    model: str
+    horizon: int
+    current_vol: float
+    point_forecast: list[float]
+    lower_95: list[float]
+    upper_95: list[float]
+    mean_forecast: list[float]
+    timestamp: datetime
+
+
+class RoughDiagnosticsResponse(BaseModel):
+    token: str
+    H_variogram: float = Field(..., description="H from variogram method")
+    H_se: float
+    r_squared: float
+    is_rough: bool
+    lags: list[float]
+    variogram: list[float]
+    interpretation: str
+    timestamp: datetime
+
+
+class RoughModelMetrics(BaseModel):
+    mae: float
+    rmse: float
+    correlation: float
+
+
+class RoughCompareMSMResponse(BaseModel):
+    token: str
+    rough_H: float
+    rough_nu: float
+    rough_is_rough: bool
+    rough_metrics: RoughModelMetrics
+    msm_num_states: int
+    msm_metrics: RoughModelMetrics
+    winner: str
+    mae_ratio: float
+    rmse_ratio: float
+    corr_diff: float
+    timestamp: datetime
