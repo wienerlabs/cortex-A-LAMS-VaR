@@ -105,6 +105,7 @@ _MODEL_REGISTRY: dict[str, tuple[str, int]] = {
     "rolling_60": ("Rolling-60d", 0),
     "ewma": ("EWMA", 1),
     "rough_bergomi": ("Rough-Bergomi", 3),
+    "svj": ("SVJ-Bates", 7),
 }
 
 
@@ -214,6 +215,9 @@ def _generate_all_forecasts(
         elif key == "rough_bergomi":
             from rough_volatility import rough_bergomi_vol_series
             out[key] = rough_bergomi_vol_series(returns)
+        elif key == "svj":
+            from svj_model import svj_vol_series
+            out[key] = svj_vol_series(returns)
         else:
             raise ValueError(f"Unknown model key: {key}")
 
