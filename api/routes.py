@@ -38,6 +38,8 @@ from api.models import (
     HawkesClusterItem,
     HawkesClustersResponse,
     HawkesIntensityResponse,
+    HawkesSimulateRequest,
+    HawkesSimulateResponse,
     HawkesVaRRequest,
     HawkesVaRResponse,
     MarginalVaRResponse,
@@ -1019,8 +1021,8 @@ async def hawkes_calibrate(req: HawkesCalibrateRequest):
 
 @router.get("/hawkes/intensity", response_model=HawkesIntensityResponse)
 async def hawkes_intensity_endpoint(token: str = Query(...)):
-    """Get current Hawkes intensity and crash clustering metrics."""
-    from hawkes_process import hawkes_intensity
+    """Get current Hawkes intensity, crash clustering metrics, and contagion risk score."""
+    from hawkes_process import detect_flash_crash_risk, hawkes_intensity
 
     _get_model(token)
     if token not in _hawkes_store:
@@ -1028,6 +1030,7 @@ async def hawkes_intensity_endpoint(token: str = Query(...)):
 
     h = _hawkes_store[token]
     result = hawkes_intensity(h["event_times"], h)
+    risk = detect_flash_crash_risk(h["event_times"], h)
 
     return HawkesIntensityResponse(
         token=token,
@@ -1036,6 +1039,9 @@ async def hawkes_intensity_endpoint(token: str = Query(...)):
         intensity_ratio=result["intensity_ratio"],
         peak_intensity=result["peak_intensity"],
         mean_intensity=result["mean_intensity"],
+        contagion_risk_score=risk["contagion_risk_score"],
+        excitation_level=risk["excitation_level"],
+        risk_level=risk["risk_level"],
         timestamp=datetime.now(timezone.utc),
     )
 
@@ -1087,6 +1093,9 @@ async def hawkes_var_endpoint(req: HawkesVaRRequest):
         max_multiplier=req.max_multiplier,
     )
 
+    from hawkes_process import detect_flash_crash_risk
+    risk = detect_flash_crash_risk(h["event_times"], h)
+
     return HawkesVaRResponse(
         adjusted_var=adj["adjusted_var"],
         base_var=adj["base_var"],
@@ -1094,5 +1103,36 @@ async def hawkes_var_endpoint(req: HawkesVaRRequest):
         intensity_ratio=adj["intensity_ratio"],
         capped=adj["capped"],
         confidence=req.confidence,
+        recent_events=risk["recent_event_count"],
+        timestamp=datetime.now(timezone.utc),
+    )
+
+
+@router.post("/hawkes/simulate", response_model=HawkesSimulateResponse)
+async def hawkes_simulate_endpoint(req: HawkesSimulateRequest):
+    """Simulate Hawkes process to generate synthetic crash scenarios."""
+    from hawkes_process import simulate_hawkes
+
+    if req.token is not None:
+        if req.token not in _hawkes_store:
+            raise HTTPException(404, f"No Hawkes calibration for '{req.token}'. Call POST /hawkes/calibrate first.")
+        h = _hawkes_store[req.token]
+        params = {"mu": h["mu"], "alpha": h["alpha"], "beta": h["beta"]}
+    elif req.mu is not None and req.alpha is not None and req.beta is not None:
+        params = {"mu": req.mu, "alpha": req.alpha, "beta": req.beta}
+    else:
+        raise HTTPException(400, "Provide either 'token' or all of (mu, alpha, beta)")
+
+    if params["alpha"] / params["beta"] >= 1.0:
+        raise HTTPException(400, f"Branching ratio α/β = {params['alpha']/params['beta']:.3f} ≥ 1 — process is non-stationary")
+
+    sim = simulate_hawkes(params, T=req.T, seed=req.seed)
+
+    intensity_arr = sim["intensity_path"]
+    return HawkesSimulateResponse(
+        n_events=sim["n_events"],
+        T=sim["T"],
+        mean_intensity=float(np.mean(intensity_arr)),
+        peak_intensity=float(np.max(intensity_arr)) if intensity_arr else params["mu"],
         timestamp=datetime.now(timezone.utc),
     )
