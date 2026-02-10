@@ -542,6 +542,9 @@ class HawkesIntensityResponse(BaseModel):
     intensity_ratio: float
     peak_intensity: float
     mean_intensity: float
+    contagion_risk_score: float = Field(..., ge=0.0, le=1.0, description="Flash crash clustering risk [0-1]")
+    excitation_level: float = Field(..., description="Current intensity minus baseline")
+    risk_level: str = Field(..., description="low/medium/high/critical")
     timestamp: datetime
 
 
@@ -574,4 +577,22 @@ class HawkesVaRResponse(BaseModel):
     intensity_ratio: float
     capped: bool
     confidence: float
+    recent_events: int = Field(..., description="Number of extreme events in lookback window")
+    timestamp: datetime
+
+
+class HawkesSimulateRequest(BaseModel):
+    token: str | None = Field(None, description="Token key — use stored params if provided")
+    mu: float | None = Field(None, gt=0, description="Baseline intensity (required if no token)")
+    alpha: float | None = Field(None, gt=0, description="Excitation magnitude (required if no token)")
+    beta: float | None = Field(None, gt=0, description="Decay rate (required if no token)")
+    T: float = Field(500.0, gt=0, description="Simulation horizon")
+    seed: int = Field(42, description="Random seed")
+
+
+class HawkesSimulateResponse(BaseModel):
+    n_events: int
+    T: float
+    mean_intensity: float
+    peak_intensity: float
     timestamp: datetime

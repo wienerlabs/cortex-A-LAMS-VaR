@@ -21,7 +21,6 @@ Mathematics:
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -409,4 +408,81 @@ def simulate_hawkes(
         "T": T,
         "intensity_t": t_sample.tolist(),
         "intensity_path": intensity_path.tolist(),
+    }
+
+
+def detect_flash_crash_risk(
+    events: np.ndarray,
+    params: dict,
+    t_now: float | None = None,
+    lookback_window: float | None = None,
+) -> dict:
+    """
+    Real-time contagion risk score based on current Hawkes intensity.
+
+    Maps the intensity ratio λ(t)/μ to a [0, 1] risk score and categorical
+    risk level. Higher scores indicate elevated flash crash clustering risk.
+
+    Args:
+        events: Event times array.
+        params: Output of fit_hawkes() (needs mu, alpha, beta).
+        t_now: Current time. If None, uses max(events) or T.
+        lookback_window: Window for counting recent events. Default: 5 × half_life.
+
+    Returns:
+        Dict with contagion_risk_score (0-1), current_intensity, baseline,
+        excitation_level, intensity_ratio, recent_event_count,
+        risk_level (low/medium/high/critical).
+    """
+    mu = params["mu"]
+    alpha = params["alpha"]
+    beta = params["beta"]
+    half_life = np.log(2) / beta
+
+    if t_now is None:
+        t_now = float(events[-1]) if len(events) > 0 else params.get("T", 1.0)
+
+    if lookback_window is None:
+        lookback_window = 5.0 * half_life
+
+    # Current intensity at t_now
+    t_eval = np.array([t_now])
+    intensity = _compute_intensity(events, (mu, alpha, beta), t_eval)
+    current_intensity = float(intensity[0])
+
+    # Excitation = how much above baseline
+    excitation_level = current_intensity - mu
+
+    # Intensity ratio
+    intensity_ratio = current_intensity / mu if mu > 1e-12 else 1.0
+
+    # Risk score: map intensity_ratio to [0, 1]
+    # At baseline (ratio=1) → score=0, at critical (ratio=max_ratio) → score=1
+    # max_ratio corresponds to when branching ratio approaches 1
+    branching_ratio = alpha / beta
+    max_ratio = max(1.0 / (1.0 - branching_ratio), 5.0) if branching_ratio < 1.0 else 5.0
+    score = min(1.0, max(0.0, (intensity_ratio - 1.0) / (max_ratio - 1.0)))
+
+    # Categorical risk level
+    if score < 0.25:
+        risk_level = "low"
+    elif score < 0.50:
+        risk_level = "medium"
+    elif score < 0.75:
+        risk_level = "high"
+    else:
+        risk_level = "critical"
+
+    # Count recent events in lookback window
+    window_start = t_now - lookback_window
+    recent_event_count = int(np.sum(events >= window_start)) if len(events) > 0 else 0
+
+    return {
+        "contagion_risk_score": float(score),
+        "current_intensity": current_intensity,
+        "baseline": mu,
+        "excitation_level": float(excitation_level),
+        "intensity_ratio": float(intensity_ratio),
+        "recent_event_count": recent_event_count,
+        "risk_level": risk_level,
     }
