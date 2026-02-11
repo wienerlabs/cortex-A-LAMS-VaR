@@ -885,3 +885,32 @@ class SVJDiagnosticsResponse(BaseModel):
     evt_tail: Optional[SVJEVTTail] = None
     clustering: Optional[SVJClustering] = None
     timestamp: datetime
+
+
+# ── Guardian (Unified Risk Veto) ─────────────────────────────────────
+
+
+class GuardianAssessRequest(BaseModel):
+    token: str = Field(..., description="Token symbol (must be calibrated)")
+    trade_size_usd: float = Field(..., gt=0, description="Proposed trade size in USD")
+    direction: str = Field(..., pattern="^(long|short)$", description="Trade direction")
+    urgency: bool = Field(default=False, description="Bypass cache for urgent assessment")
+    max_slippage_pct: float = Field(default=1.0, ge=0.0, le=10.0, description="Max acceptable slippage %")
+
+
+class GuardianComponentScore(BaseModel):
+    component: str = Field(..., description="Component name: evt, svj, hawkes, regime")
+    score: float = Field(..., ge=0, le=100, description="Risk score 0-100")
+    details: dict
+
+
+class GuardianAssessResponse(BaseModel):
+    approved: bool
+    risk_score: float = Field(..., ge=0, le=100, description="Composite risk score 0-100")
+    veto_reasons: list[str]
+    recommended_size: float = Field(..., ge=0, description="Suggested position size in USD")
+    regime_state: int
+    confidence: float = Field(..., ge=0, le=1, description="Model agreement level")
+    expires_at: str
+    component_scores: list[GuardianComponentScore]
+    from_cache: bool = False

@@ -27,6 +27,9 @@ from api.models import (
     CopulaFitResult,
     CopulaPortfolioVaRResponse,
     ErrorResponse,
+    GuardianAssessRequest,
+    GuardianAssessResponse,
+    GuardianComponentScore,
     RegimeDependentCopulaVaRResponse,
     RegimeTailDependenceItem,
     EVTBacktestResponse,
@@ -1570,4 +1573,55 @@ def svj_diagnostics_endpoint(token: str = Query(...)):
         evt_tail=et,
         clustering=cl,
         timestamp=datetime.now(timezone.utc),
+    )
+
+
+# ── Guardian (Unified Risk Veto) ─────────────────────────────────────
+
+
+@router.post("/guardian/assess", response_model=GuardianAssessResponse)
+def guardian_assess(req: GuardianAssessRequest):
+    """Unified risk veto endpoint for Cortex autonomous trading agents."""
+    from guardian import _cache as guardian_cache
+    from guardian import assess_trade
+
+    # Urgency flag bypasses cache
+    if req.urgency:
+        cache_key = f"{req.token}:{req.direction}"
+        guardian_cache.pop(cache_key, None)
+
+    model_data = _model_store.get(req.token)
+    evt_data = _evt_store.get(req.token)
+    svj_data = _svj_store.get(req.token)
+    hawkes_data = _hawkes_store.get(req.token)
+
+    if not any([model_data, evt_data, svj_data, hawkes_data]):
+        raise HTTPException(
+            status_code=404,
+            detail=f"No calibrated models for '{req.token}'. "
+            "Calibrate at least one model first (MSM, EVT, SVJ, or Hawkes).",
+        )
+
+    result = assess_trade(
+        token=req.token,
+        trade_size_usd=req.trade_size_usd,
+        direction=req.direction,
+        model_data=model_data,
+        evt_data=evt_data,
+        svj_data=svj_data,
+        hawkes_data=hawkes_data,
+    )
+
+    return GuardianAssessResponse(
+        approved=result["approved"],
+        risk_score=result["risk_score"],
+        veto_reasons=result["veto_reasons"],
+        recommended_size=result["recommended_size"],
+        regime_state=result["regime_state"],
+        confidence=result["confidence"],
+        expires_at=result["expires_at"],
+        component_scores=[
+            GuardianComponentScore(**s) for s in result["component_scores"]
+        ],
+        from_cache=result["from_cache"],
     )
