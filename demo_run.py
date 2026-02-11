@@ -91,7 +91,7 @@ evt_v = evt.evt_var(
 )
 evt_es = evt.evt_cvar(
     xi=gpd["xi"], beta=gpd["beta"], threshold=gpd["threshold"],
-    n_total=gpd["n_total"], n_exceedances=gpd["n_exceedances"], alpha=0.01,
+    var_value=evt_v, alpha=0.01,
 )
 dt = time.time() - t0
 kv("GPD ξ (shape)", gpd["xi"])
@@ -152,17 +152,18 @@ import hawkes_process as hp
 
 t0 = time.time()
 events = np.sort(np.cumsum(np.random.exponential(0.5, size=80)))
-hc = hp.calibrate_hawkes(events)
+T_hawkes = float(events[-1]) + 1.0
+hc = hp.fit_hawkes(events, T=T_hawkes)
 kv("μ (background)", hc["mu"])
 kv("α (excitation)", hc["alpha"])
 kv("β (decay)", hc["beta"])
 kv("Branching ratio", hc["branching_ratio"])
-kv("Stability", hc["stability"])
+kv("Stationary?", hc["stationary"])
 
 fc = hp.detect_flash_crash_risk(events, hc)
 kv("Flash crash risk level", fc["risk_level"])
 kv("Current intensity λ(t)", fc["current_intensity"])
-kv("Cluster count", fc["cluster_count"])
+kv("Contagion risk score", fc["contagion_risk_score"])
 dt = time.time() - t0
 kv("Hawkes time", f"{dt*1000:.1f}ms")
 
@@ -174,7 +175,7 @@ t0 = time.time()
 h_rs = mfa.hurst_rs(single_returns)
 h_dfa = mfa.hurst_dfa(single_returns)
 spec = mfa.multifractal_spectrum(single_returns)
-lrd = mfa.long_range_dependence(single_returns)
+lrd = mfa.long_range_dependence_test(single_returns)
 kv("Hurst (R/S)", h_rs["H"])
 kv("Hurst (DFA)", h_dfa["H"])
 kv("R² (R/S)", h_rs["r_squared"])
@@ -197,9 +198,9 @@ kv("rBergomi H", rbm["H"])
 kv("rBergomi ν", rbm["nu"])
 kv("rBergomi V0", rbm["V0"])
 
-forecast = rv.rough_vol_forecast(single_returns, model_type="bergomi", horizon=5)
+forecast = rv.rough_vol_forecast(single_returns, calibration=rbm, horizon=5)
 kv("Forecast model", forecast["model"])
-kv("σ forecast [1-5]", [round(v, 4) for v in forecast["forecast"]])
+kv("σ forecast [1-5]", [round(v, 4) for v in forecast["point_forecast"]])
 dt = time.time() - t0
 kv("Rough vol time", f"{dt*1000:.1f}ms")
 
@@ -222,16 +223,16 @@ kv("κ (mean reversion)", sc["kappa"])
 kv("θ (long-run var)", sc["theta"])
 kv("σ (vol-of-vol)", sc["sigma"])
 kv("ρ (leverage)", sc["rho"])
-kv("λ (jump intensity)", sc["lambda_j"])
+kv("λ (jump intensity)", sc["lambda_"])
 kv("μⱼ (jump mean)", sc["mu_j"])
 kv("σⱼ (jump vol)", sc["sigma_j"])
 
-sv = svj.svj_var(sc, alpha=0.01)
-kv("SVJ VaR 99%", sv["var"])
+sv = svj.svj_var(jumpy, calibration=sc, alpha=0.01)
+kv("SVJ VaR 99%", sv["var_svj"])
 kv("SVJ ES 99%", sv["expected_shortfall"])
 kv("Jump contribution %", sv["jump_contribution_pct"])
 
-dr = svj.decompose_risk(sc)
+dr = svj.decompose_risk(jumpy, calibration=sc)
 kv("Diffusion var", dr["diffusion_variance"])
 kv("Jump var", dr["jump_variance"])
 kv("Jump share %", dr["jump_share_pct"])
@@ -243,13 +244,16 @@ header("11. MODEL COMPARISON (All Volatility Models)")
 import model_comparison as mc
 
 t0 = time.time()
-comp = mc.compare_models(single_returns, cal)
+comp = mc.compare_models(single_returns)
 dt = time.time() - t0
-print(f"    {'Model':<20} {'MAE':>10} {'RMSE':>10} {'Rank':>6}")
-print(f"    {'─'*20} {'─'*10} {'─'*10} {'─'*6}")
-for r in comp:
-    print(f"    {r['model']:<20} {r['mae']:>10.4f} {r['rmse']:>10.4f} {r['rank']:>6}")
-kv("Winner", comp[0]["model"])
+print(f"    {'Model':<25} {'MAE':>10} {'AIC':>12} {'Breach%':>10}")
+print(f"    {'─'*25} {'─'*10} {'─'*12} {'─'*10}")
+for _, row in comp.iterrows():
+    mae = row.get("mae_volatility", 0)
+    aic = row.get("aic", float("nan"))
+    br = row.get("breach_rate", 0)
+    aic_s = f"{aic:.1f}" if aic is not None and np.isfinite(aic) else "—"
+    print(f"    {row['model']:<25} {mae:>10.4f} {aic_s:>12} {br:>10.4f}")
 kv("Comparison time", f"{dt*1000:.1f}ms")
 
 # ─── Summary ────────────────────────────────────────────────────────
