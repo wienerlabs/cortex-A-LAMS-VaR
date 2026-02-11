@@ -3,5 +3,6 @@ export { RegimeStreamClient } from "./websocket";
 export type { RegimeStreamConfig, RegimeHandler, ErrorHandler } from "./websocket";
 export * from "./types";
 export * from "./errors";
-export { CircuitBreaker, withRetry, fetchWithTimeout } from "./utils";
+export { createResiliencePolicy, executeWithResilience } from "./utils";
+export type { ResilienceConfig } from "./utils";
 

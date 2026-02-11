@@ -4,7 +4,9 @@
   "description": "Type-safe TypeScript client for the Cortex Risk Engine API",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
@@ -12,9 +14,18 @@
     "lint": "tsc --noEmit",
     "clean": "rm -rf dist"
   },
-  "keywords": ["cortex", "risk", "defi", "solana", "var", "volatility", "msm"],
+  "keywords": [
+    "cortex",
+    "risk",
+    "defi",
+    "solana",
+    "var",
+    "volatility",
+    "msm"
+  ],
   "license": "MIT",
   "dependencies": {
+    "cockatiel": "^3.2.1",
     "zod": "^3.22.0"
   },
   "devDependencies": {
@@ -26,4 +37,3 @@
   },
   "sideEffects": false
 }
-

@@ -1,107 +1,55 @@
+import {
+  retry,
+  circuitBreaker,
+  timeout,
+  wrap,
+  handleAll,
+  ExponentialBackoff,
+  ConsecutiveBreaker,
+  TimeoutStrategy,
+  TaskCancelledError,
+  BrokenCircuitError,
+} from "cockatiel";
+import type { IPolicy } from "cockatiel";
 import { CircuitBreakerOpenError, RiskEngineTimeout } from "./errors";
 
-export async function withRetry<T>(
-  fn: () => Promise<T>,
-  retries: number,
-  baseDelay: number,
-): Promise<T> {
-  let lastError: Error | undefined;
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    try {
-      return await fn();
-    } catch (err) {
-      lastError = err as Error;
-      if (attempt < retries) {
-        const jitter = Math.random() * 0.3 + 0.85;
-        const delay = baseDelay * Math.pow(2, attempt) * jitter;
-        await sleep(delay);
-      }
-    }
-  }
-  throw lastError;
+export interface ResilienceConfig {
+  timeoutMs: number;
+  maxRetries: number;
+  retryBaseDelay: number;
+  cbThreshold: number;
+  cbResetMs: number;
 }
 
-export function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+export function createResiliencePolicy(config: ResilienceConfig): IPolicy {
+  const timeoutPolicy = timeout(config.timeoutMs, TimeoutStrategy.Aggressive);
+  const retryPolicy = retry(handleAll, {
+    maxAttempts: config.maxRetries,
+    backoff: new ExponentialBackoff({ initialDelay: config.retryBaseDelay }),
+  });
+  const cbPolicy = circuitBreaker(handleAll, {
+    halfOpenAfter: config.cbResetMs,
+    breaker: new ConsecutiveBreaker(config.cbThreshold),
+  });
+  return wrap(retryPolicy, cbPolicy, timeoutPolicy);
 }
 
-enum CircuitState {
-  CLOSED = "CLOSED",
-  OPEN = "OPEN",
-  HALF_OPEN = "HALF_OPEN",
-}
-
-export class CircuitBreaker {
-  private state = CircuitState.CLOSED;
-  private failures = 0;
-  private lastFailureTime = 0;
-
-  constructor(
-    private readonly threshold: number = 5,
-    private readonly resetMs: number = 30_000,
-  ) {}
-
-  async execute<T>(fn: () => Promise<T>): Promise<T> {
-    if (this.state === CircuitState.OPEN) {
-      if (Date.now() - this.lastFailureTime >= this.resetMs) {
-        this.state = CircuitState.HALF_OPEN;
-      } else {
-        throw new CircuitBreakerOpenError(
-          this.resetMs - (Date.now() - this.lastFailureTime),
-        );
-      }
-    }
-
-    try {
-      const result = await fn();
-      this.onSuccess();
-      return result;
-    } catch (err) {
-      this.onFailure();
-      throw err;
-    }
-  }
-
-  private onSuccess(): void {
-    this.failures = 0;
-    this.state = CircuitState.CLOSED;
-  }
-
-  private onFailure(): void {
-    this.failures++;
-    this.lastFailureTime = Date.now();
-    if (this.failures >= this.threshold) {
-      this.state = CircuitState.OPEN;
-    }
-  }
-
-  get currentState(): string {
-    return this.state;
-  }
-
-  reset(): void {
-    this.failures = 0;
-    this.state = CircuitState.CLOSED;
-    this.lastFailureTime = 0;
-  }
-}
-
-export async function fetchWithTimeout(
+export async function executeWithResilience<T>(
+  policy: IPolicy,
+  fn: (signal: AbortSignal) => Promise<T>,
   url: string,
-  init: RequestInit,
   timeoutMs: number,
-): Promise<Response> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+): Promise<T> {
   try {
-    return await fetch(url, { ...init, signal: controller.signal });
+    return await policy.execute(({ signal }) => fn(signal));
   } catch (err) {
-    if ((err as Error).name === "AbortError") {
+    if (err instanceof TaskCancelledError) {
       throw new RiskEngineTimeout(url, timeoutMs);
     }
+    if (err instanceof BrokenCircuitError) {
+      throw new CircuitBreakerOpenError(0);
+    }
     throw err;
-  } finally {
-    clearTimeout(timer);
   }
 }
 

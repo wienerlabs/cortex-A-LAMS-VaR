@@ -54,7 +54,8 @@ import type {
   GuardianAssessResponse,
 } from "./types";
 import { mapHttpError } from "./errors";
-import { CircuitBreaker, fetchWithTimeout, withRetry } from "./utils";
+import type { IPolicy } from "cockatiel";
+import { createResiliencePolicy, executeWithResilience } from "./utils";
 
 const DEFAULTS: Required<Omit<RiskEngineConfig, "baseUrl">> = {
   timeout: 30_000,
@@ -67,38 +68,36 @@ const DEFAULTS: Required<Omit<RiskEngineConfig, "baseUrl">> = {
 export class RiskEngineClient {
   private readonly baseUrl: string;
   private readonly timeout: number;
-  private readonly retries: number;
-  private readonly retryDelay: number;
-  private readonly breaker: CircuitBreaker;
+  private readonly policy: IPolicy;
 
   constructor(config: RiskEngineConfig) {
     this.baseUrl = config.baseUrl.replace(/\/+$/, "");
     this.timeout = config.timeout ?? DEFAULTS.timeout;
-    this.retries = config.retries ?? DEFAULTS.retries;
-    this.retryDelay = config.retryDelay ?? DEFAULTS.retryDelay;
-    this.breaker = new CircuitBreaker(
-      config.circuitBreakerThreshold ?? DEFAULTS.circuitBreakerThreshold,
-      config.circuitBreakerResetMs ?? DEFAULTS.circuitBreakerResetMs,
-    );
+    this.policy = createResiliencePolicy({
+      timeoutMs: this.timeout,
+      maxRetries: config.retries ?? DEFAULTS.retries,
+      retryBaseDelay: config.retryDelay ?? DEFAULTS.retryDelay,
+      cbThreshold: config.circuitBreakerThreshold ?? DEFAULTS.circuitBreakerThreshold,
+      cbResetMs: config.circuitBreakerResetMs ?? DEFAULTS.circuitBreakerResetMs,
+    });
   }
 
   // ── Internal HTTP helpers ──
 
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
-    return this.breaker.execute(() =>
-      withRetry(async () => {
-        const url = `${this.baseUrl}${path}`;
-        const init: RequestInit = {
-          method,
-          headers: { "Content-Type": "application/json" },
-        };
-        if (body !== undefined) init.body = JSON.stringify(body);
-        const res = await fetchWithTimeout(url, init, this.timeout);
-        const text = await res.text();
-        if (!res.ok) throw mapHttpError(res.status, text, url);
-        return JSON.parse(text) as T;
-      }, this.retries, this.retryDelay),
-    );
+    const url = `${this.baseUrl}${path}`;
+    return executeWithResilience(this.policy, async (signal) => {
+      const init: RequestInit = {
+        method,
+        headers: { "Content-Type": "application/json" },
+        signal,
+      };
+      if (body !== undefined) init.body = JSON.stringify(body);
+      const res = await fetch(url, init);
+      const text = await res.text();
+      if (!res.ok) throw mapHttpError(res.status, text, url);
+      return JSON.parse(text) as T;
+    }, url, this.timeout);
   }
 
   private get<T>(path: string): Promise<T> {

@@ -41,7 +41,6 @@ describe("RiskEngineClient", () => {
   it("applies default config values", () => {
     const c = new RiskEngineClient({ baseUrl: BASE });
     expect((c as any).timeout).toBe(30_000);
-    expect((c as any).retries).toBe(2);
   });
 
   // ── GET routing ──
@@ -95,20 +94,12 @@ describe("RiskEngineClient", () => {
 
   // ── Timeout ──
 
-  it("throws RiskEngineTimeout on abort", async () => {
+  it("throws RiskEngineTimeout on timeout", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockImplementation((_url: string, init: RequestInit) => {
-        return new Promise((_resolve, reject) => {
-          init.signal?.addEventListener("abort", () => {
-            const err = new Error("aborted");
-            err.name = "AbortError";
-            reject(err);
-          });
-        });
-      }),
+      vi.fn().mockImplementation(() => new Promise(() => {})),
     );
-    const fast = new RiskEngineClient({ baseUrl: BASE, timeout: 50, retries: 0 });
+    const fast = new RiskEngineClient({ baseUrl: BASE, timeout: 100, retries: 0 });
     await expect(fast.regime("SOL")).rejects.toThrow(RiskEngineTimeout);
   });
 
