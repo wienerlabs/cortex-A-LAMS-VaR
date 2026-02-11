@@ -1,29 +1,62 @@
 {
-  "name": "@cortex/risk-sdk",
+  "name": "cortex-risk-sdk",
   "version": "1.0.0",
-  "description": "Type-safe TypeScript client for the Cortex Risk Engine API",
+  "description": "Production-grade TypeScript SDK for the Cortex Risk Engine — MSM-VaR, EVT, SVJ, Hawkes, Rough Volatility, Copula VaR, and Guardian risk veto for autonomous DeFi agents on Solana.",
+  "author": "Cortex Labs",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cortex-labs/risk-sdk.git"
+  },
+  "homepage": "https://github.com/cortex-labs/risk-sdk#readme",
+  "bugs": {
+    "url": "https://github.com/cortex-labs/risk-sdk/issues"
+  },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
   "files": [
-    "dist"
+    "dist",
+    "LICENSE",
+    "README.md"
   ],
   "scripts": {
     "build": "tsc",
+    "clean": "rm -rf dist",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "tsc --noEmit",
-    "clean": "rm -rf dist"
+    "prepublishOnly": "npm run clean && npm run lint && npm run test && npm run build",
+    "prepack": "npm run build"
   },
   "keywords": [
     "cortex",
-    "risk",
+    "risk-engine",
     "defi",
     "solana",
     "var",
+    "value-at-risk",
     "volatility",
-    "msm"
+    "msm",
+    "markov-switching",
+    "multifractal",
+    "evt",
+    "extreme-value-theory",
+    "svj",
+    "stochastic-volatility",
+    "hawkes-process",
+    "rough-volatility",
+    "copula",
+    "guardian",
+    "autonomous-agents",
+    "trading"
   ],
-  "license": "MIT",
   "dependencies": {
     "cockatiel": "^3.2.1",
     "zod": "^3.22.0"
@@ -35,5 +68,8 @@
   "engines": {
     "node": ">=18.0.0"
   },
-  "sideEffects": false
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public"
+  }
 }

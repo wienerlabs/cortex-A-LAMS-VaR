@@ -53,8 +53,14 @@ import type {
   GuardianAssessRequest,
   GuardianAssessResponse,
 } from "./types";
+import {
+  GuardianAssessResponseSchema,
+  VaRResponseSchema,
+  RegimeResponseSchema,
+} from "./types";
 import { mapHttpError } from "./errors";
 import type { IPolicy } from "cockatiel";
+import type { ZodSchema } from "zod";
 import { createResiliencePolicy, executeWithResilience } from "./utils";
 
 const DEFAULTS: Required<Omit<RiskEngineConfig, "baseUrl">> = {
@@ -63,16 +69,19 @@ const DEFAULTS: Required<Omit<RiskEngineConfig, "baseUrl">> = {
   retryDelay: 500,
   circuitBreakerThreshold: 5,
   circuitBreakerResetMs: 30_000,
+  validateResponses: false,
 };
 
 export class RiskEngineClient {
   private readonly baseUrl: string;
   private readonly timeout: number;
   private readonly policy: IPolicy;
+  private readonly validate: boolean;
 
   constructor(config: RiskEngineConfig) {
     this.baseUrl = config.baseUrl.replace(/\/+$/, "");
     this.timeout = config.timeout ?? DEFAULTS.timeout;
+    this.validate = config.validateResponses ?? false;
     this.policy = createResiliencePolicy({
       timeoutMs: this.timeout,
       maxRetries: config.retries ?? DEFAULTS.retries,
@@ -84,7 +93,7 @@ export class RiskEngineClient {
 
   // ── Internal HTTP helpers ──
 
-  private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  private async request<T>(method: string, path: string, body?: unknown, schema?: ZodSchema<T>): Promise<T> {
     const url = `${this.baseUrl}${path}`;
     return executeWithResilience(this.policy, async (signal) => {
       const init: RequestInit = {
@@ -96,16 +105,21 @@ export class RiskEngineClient {
       const res = await fetch(url, init);
       const text = await res.text();
       if (!res.ok) throw mapHttpError(res.status, text, url);
-      return JSON.parse(text) as T;
+      return this.parsed(JSON.parse(text) as T, schema);
     }, url, this.timeout);
   }
 
-  private get<T>(path: string): Promise<T> {
-    return this.request<T>("GET", path);
+  private get<T>(path: string, schema?: ZodSchema<T>): Promise<T> {
+    return this.request<T>("GET", path, undefined, schema);
   }
 
-  private post<T>(path: string, body?: unknown): Promise<T> {
-    return this.request<T>("POST", path, body);
+  private post<T>(path: string, body?: unknown, schema?: ZodSchema<T>): Promise<T> {
+    return this.request<T>("POST", path, body, schema);
+  }
+
+  private parsed<T>(data: T, schema?: ZodSchema<T>): T {
+    if (!this.validate || !schema) return data;
+    return schema.parse(data);
   }
 
   private qs(params: Record<string, unknown>): string {
@@ -125,12 +139,12 @@ export class RiskEngineClient {
 
   /** Get current regime state */
   async regime(token: string): Promise<RegimeResponse> {
-    return this.get(`/api/v1/regime/current${this.qs({ token })}`);
+    return this.get(`/api/v1/regime/current${this.qs({ token })}`, RegimeResponseSchema);
   }
 
   /** Get VaR at given confidence level */
   async var(token: string, confidence: number, opts?: { use_student_t?: boolean; nu?: number }): Promise<VaRResponse> {
-    return this.get(`/api/v1/var/${confidence}${this.qs({ token, ...opts })}`);
+    return this.get(`/api/v1/var/${confidence}${this.qs({ token, ...opts })}`, VaRResponseSchema);
   }
 
   /** Get volatility forecast */
@@ -319,6 +333,6 @@ export class RiskEngineClient {
   // ── Guardian ──
 
   async guardianAssess(req: GuardianAssessRequest): Promise<GuardianAssessResponse> {
-    return this.post("/api/v1/guardian/assess", req);
+    return this.post("/api/v1/guardian/assess", req, GuardianAssessResponseSchema);
   }
 }

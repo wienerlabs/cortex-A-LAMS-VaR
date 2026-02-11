@@ -1,0 +1,21 @@
+# Source (ship only dist/)
+src/
+tests/
+examples/
+
+# Config
+tsconfig.json
+vitest.config.*
+.eslintrc*
+.prettierrc*
+
+# Dev artifacts
+node_modules/
+coverage/
+*.tsbuildinfo
+.DS_Store
+
+# Git
+.git/
+.gitignore
+

@@ -853,6 +853,47 @@ export interface GuardianAssessResponse {
   from_cache: boolean;
 }
 
+// ── Zod Schemas (critical response validation for autonomous agents) ──
+
+const GuardianComponentScoreSchema = z.object({
+  component: z.string(),
+  score: z.number(),
+  details: z.record(z.unknown()),
+});
+
+export const GuardianAssessResponseSchema = z.object({
+  approved: z.boolean(),
+  risk_score: z.number().min(0).max(100),
+  veto_reasons: z.array(z.string()),
+  recommended_size: z.number().min(0),
+  regime_state: z.number().int().min(0),
+  confidence: z.number().min(0).max(1),
+  expires_at: z.string(),
+  component_scores: z.array(GuardianComponentScoreSchema),
+  from_cache: z.boolean(),
+});
+
+export const VaRResponseSchema = z.object({
+  timestamp: z.string(),
+  confidence: z.number().min(0).max(1),
+  var_value: z.number(),
+  sigma_forecast: z.number(),
+  z_alpha: z.number(),
+  regime_probabilities: z.array(z.number()),
+  distribution: z.string(),
+});
+
+export const RegimeResponseSchema = z.object({
+  timestamp: z.string(),
+  regime_state: z.number().int().min(0),
+  regime_name: z.string(),
+  regime_probabilities: z.array(z.number()),
+  volatility_filtered: z.number(),
+  volatility_forecast: z.number(),
+  var_95: z.number(),
+  transition_matrix: z.array(z.array(z.number())),
+});
+
 // ── Client Configuration ──
 
 export interface RiskEngineConfig {
@@ -862,4 +903,5 @@ export interface RiskEngineConfig {
   retryDelay?: number;
   circuitBreakerThreshold?: number;
   circuitBreakerResetMs?: number;
+  validateResponses?: boolean;
 }
