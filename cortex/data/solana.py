@@ -58,9 +58,10 @@ DEX_PROGRAMS: dict[str, str] = {
 
 # Lending/perp protocol program IDs (for liquidation events)
 LENDING_PROGRAMS: dict[str, str] = {
-    "drift": "dRiftyHA39MWEi3m9aunc5MzRF1JYuBsbn6VPcn33UH",
-    "mango_v4": "4MangoMjqJ2firMokCjjGPuH8rk3EyL6zmuDAsgzgz",
-    "marginfi": "MFv2hWf31Z9kbCa1snEPYctwafyhdvnV7FZnsebVacA",
+    "So1endEVFfnCjSQnx7qoiMajcpyBrm2kRg4rJNQer6": "Solend",
+    "dRiftyHA39MWEi3m9aunc5MzRF1JYuBsbn6VPcn33UH": "Drift",
+    "4MangoMjqJ2firMokCjjGPuH8rk3EyL6zmuDAsgzgz": "Mango v4",
+    "MFv2hWf31Z9kbCa1snEPYctwafyhdvnV7FZnsebVacA": "MarginFi",
 }
 
 # Drift perp market symbols

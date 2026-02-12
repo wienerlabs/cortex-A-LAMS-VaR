@@ -513,3 +513,230 @@ def detect_flash_crash_risk(
         "recent_event_count": recent_event_count,
         "risk_level": risk_level,
     }
+
+
+# ── Multivariate Hawkes Process (Wave 10.3) ──────────────────────────
+
+
+def fit_multivariate_hawkes(
+    event_times_by_type: dict[str, np.ndarray],
+    T: float | None = None,
+) -> dict:
+    """Fit multivariate Hawkes process with cross-excitation.
+
+    Each event type has its own baseline μ_k and can excite other types
+    via cross-excitation parameters α_{k,l} and β_{k,l}.
+
+    For simplicity, uses univariate MLE per type for baseline + self-excitation,
+    then estimates cross-excitation from empirical triggering rates.
+
+    Args:
+        event_times_by_type: Dict mapping event_type -> sorted event times.
+        T: Total observation window. If None, inferred from data.
+
+    Returns:
+        Dict with mu (per type), cross_excitation matrix, branching_matrix,
+        spectral_radius, stationary flag.
+    """
+    types = sorted(event_times_by_type.keys())
+    n_types = len(types)
+
+    if n_types == 0:
+        return {
+            "event_types": [],
+            "mu": {},
+            "cross_excitation": [],
+            "branching_matrix": [],
+            "spectral_radius": 0.0,
+            "stationary": True,
+            "n_events_per_type": {},
+        }
+
+    # Infer T from data
+    if T is None:
+        all_times = np.concatenate([v for v in event_times_by_type.values() if len(v) > 0])
+        T = float(np.max(all_times)) + 1.0 if len(all_times) > 0 else 1.0
+
+    mu_dict: dict[str, float] = {}
+    self_params: dict[str, dict] = {}
+    n_events_per_type: dict[str, int] = {}
+
+    # Fit univariate Hawkes per type for baseline + self-excitation
+    for etype in types:
+        events = event_times_by_type[etype]
+        n_events_per_type[etype] = len(events)
+
+        if len(events) >= 5:
+            try:
+                result = fit_hawkes(events, T)
+                mu_dict[etype] = result["mu"]
+                self_params[etype] = {"alpha": result["alpha"], "beta": result["beta"]}
+            except Exception:
+                mu_dict[etype] = len(events) / T
+                self_params[etype] = {"alpha": 0.1, "beta": 1.0}
+        else:
+            mu_dict[etype] = len(events) / T if T > 0 else 0.0
+            self_params[etype] = {"alpha": 0.1, "beta": 1.0}
+
+    # Estimate cross-excitation from empirical triggering
+    cross_excitation: list[dict] = []
+    branching_matrix = np.zeros((n_types, n_types))
+
+    for i, src in enumerate(types):
+        src_events = event_times_by_type[src]
+        src_alpha = self_params[src]["alpha"]
+        src_beta = self_params[src]["beta"]
+
+        for j, tgt in enumerate(types):
+            tgt_events = event_times_by_type[tgt]
+
+            if i == j:
+                # Self-excitation
+                alpha = src_alpha
+                beta = src_beta
+            else:
+                # Cross-excitation: count how often tgt events follow src events
+                # within a decay window
+                if len(src_events) == 0 or len(tgt_events) == 0:
+                    alpha = 0.0
+                    beta = 1.0
+                else:
+                    decay_window = 2.0 * np.log(2) / src_beta if src_beta > 0 else 10.0
+                    trigger_count = 0
+                    for t_src in src_events:
+                        mask = (tgt_events > t_src) & (tgt_events <= t_src + decay_window)
+                        trigger_count += int(np.sum(mask))
+
+                    # Empirical triggering rate
+                    alpha = trigger_count / max(len(src_events), 1) * 0.5
+                    beta = src_beta
+
+            branching_ratio = alpha / beta if beta > 0 else 0.0
+            branching_matrix[i, j] = branching_ratio
+
+            cross_excitation.append({
+                "source": src,
+                "target": tgt,
+                "alpha": float(alpha),
+                "beta": float(beta),
+            })
+
+    # Spectral radius of branching matrix (must be < 1 for stationarity)
+    eigenvalues = np.linalg.eigvals(branching_matrix)
+    spectral_radius = float(np.max(np.abs(eigenvalues)))
+
+    return {
+        "event_types": types,
+        "mu": mu_dict,
+        "cross_excitation": cross_excitation,
+        "branching_matrix": branching_matrix.tolist(),
+        "spectral_radius": spectral_radius,
+        "stationary": spectral_radius < 1.0,
+        "n_events_per_type": n_events_per_type,
+    }
+
+
+def multivariate_intensity(
+    event_times_by_type: dict[str, np.ndarray],
+    fit_result: dict,
+    t_now: float | None = None,
+) -> dict[str, float]:
+    """Compute current intensity for each event type in multivariate Hawkes.
+
+    Args:
+        event_times_by_type: Dict mapping event_type -> sorted event times.
+        fit_result: Output of fit_multivariate_hawkes().
+        t_now: Current time. If None, uses max of all event times.
+
+    Returns:
+        Dict mapping event_type -> current intensity λ_k(t_now).
+    """
+    types = fit_result["event_types"]
+    mu = fit_result["mu"]
+
+    if not types:
+        return {}
+
+    if t_now is None:
+        all_times = []
+        for v in event_times_by_type.values():
+            if len(v) > 0:
+                all_times.append(float(v[-1]))
+        t_now = max(all_times) if all_times else 0.0
+
+    # Build cross-excitation lookup
+    cross_map: dict[tuple[str, str], dict] = {}
+    for entry in fit_result["cross_excitation"]:
+        cross_map[(entry["source"], entry["target"])] = entry
+
+    intensities: dict[str, float] = {}
+    for tgt in types:
+        lam = mu.get(tgt, 0.0)
+        for src in types:
+            key = (src, tgt)
+            if key not in cross_map:
+                continue
+            alpha = cross_map[key]["alpha"]
+            beta = cross_map[key]["beta"]
+            src_events = event_times_by_type.get(src, np.array([]))
+            for t_i in src_events:
+                dt = t_now - t_i
+                if dt > 0:
+                    lam += alpha * np.exp(-beta * dt)
+        intensities[tgt] = float(lam)
+
+    return intensities
+
+
+def flash_crash_risk_onchain(
+    event_times_by_type: dict[str, np.ndarray],
+    fit_result: dict,
+    t_now: float | None = None,
+) -> dict:
+    """Flash crash risk score incorporating on-chain event intensity.
+
+    Maps the maximum intensity ratio across all event types to a 0-100 score.
+    """
+    types = fit_result["event_types"]
+    mu = fit_result["mu"]
+
+    if not types:
+        return {
+            "flash_crash_score": 0.0,
+            "current_intensities": {},
+            "baseline_intensities": {},
+            "dominant_event_type": "none",
+            "risk_level": "low",
+        }
+
+    current = multivariate_intensity(event_times_by_type, fit_result, t_now)
+
+    max_ratio = 0.0
+    dominant = types[0]
+    for etype in types:
+        baseline = mu.get(etype, 1e-12)
+        if baseline > 1e-12:
+            ratio = current.get(etype, 0.0) / baseline
+            if ratio > max_ratio:
+                max_ratio = ratio
+                dominant = etype
+
+    # Map ratio to 0-100 score (ratio=1 -> 0, ratio=5+ -> 100)
+    score = min(100.0, max(0.0, (max_ratio - 1.0) / 4.0 * 100.0))
+
+    if score < 25:
+        risk_level = "low"
+    elif score < 50:
+        risk_level = "medium"
+    elif score < 75:
+        risk_level = "high"
+    else:
+        risk_level = "critical"
+
+    return {
+        "flash_crash_score": float(score),
+        "current_intensities": current,
+        "baseline_intensities": {k: float(v) for k, v in mu.items()},
+        "dominant_event_type": dominant,
+        "risk_level": risk_level,
+    }
