@@ -22,6 +22,8 @@ p.desc{font-size:.8rem;color:var(--muted);margin-bottom:12px}
 .endpoint summary::before{content:'▸';font-size:.75rem;transition:transform .15s}
 .endpoint[open] summary::before{transform:rotate(90deg)}
 .endpoint summary .method{font-size:.7rem;padding:2px 6px;border:1px solid var(--fg);border-radius:2px;font-weight:700;letter-spacing:.04em}
+.endpoint.primary{border-width:2px}
+.endpoint.primary summary{font-size:.95rem}
 .endpoint summary .method.post{background:var(--fg);color:var(--bg)}
 label{display:block;font-size:.8rem;font-weight:500;margin:8px 0 2px}
 input,select,textarea{font-family:var(--font);font-size:.85rem;border:1px solid var(--border);border-radius:var(--radius);padding:6px 8px;width:100%;background:var(--bg);color:var(--fg)}
@@ -96,7 +98,7 @@ function field(name, dflt, type='text', opts={}) {
 
 const SECTIONS = [
   { id:'msm', title:'MSM Core', desc:'Calibrate MSM model and query VaR, volatility, backtest', endpoints:[
-    { method:'POST', path:'/calibrate', desc:'Calibrate MSM model for a token',
+    { method:'POST', path:'/calibrate', desc:'⬤ START HERE — Calibrate MSM model for a token. Required before most other endpoints.', primary:true,
       fields:[
         field('token','AAPL'), field('start_date','2024-01-01'), field('end_date','2025-01-01'),
         field('num_states','5','number'), field('method','empirical','select',{options:['mle','grid','empirical','hybrid']}),
@@ -117,7 +119,7 @@ const SECTIONS = [
       fields:[field('token','AAPL'), field('alpha','0.05','number'),
         field('use_student_t','false','select',{options:['false','true']}), field('nu','5.0','number')]},
   ]},
-  { id:'regime', title:'Regime Analytics', desc:'Durations, history, transitions, statistics', endpoints:[
+  { id:'regime', title:'Regime Analytics', desc:'Durations, history, transitions, statistics — requires MSM calibration first', endpoints:[
     { method:'GET', path:'/regime/durations', fields:[field('token','AAPL')]},
     { method:'GET', path:'/regime/history', fields:[field('token','AAPL')]},
     { method:'GET', path:'/regime/transition-alert',
@@ -131,7 +133,7 @@ const SECTIONS = [
       fields:[field('regime_state','','number'), field('max_items','20','number')]},
     { method:'GET', path:'/news/signal', fields:[field('regime_state','','number')]},
   ]},
-  { id:'compare', title:'Model Comparison', desc:'Compare volatility models', endpoints:[
+  { id:'compare', title:'Model Comparison', desc:'Compare volatility models — requires MSM calibration first', endpoints:[
     { method:'POST', path:'/compare', desc:'Run model comparison',
       fields:[field('token','AAPL'), field('alpha','0.05','number'),
         field('models','','text',{placeholder:'e.g. ewma,garch (blank=all)'})]},
@@ -155,7 +157,7 @@ const SECTIONS = [
       fields:[field('weights','{"AAPL":0.4,"MSFT":0.3,"GOOGL":0.3}','textarea'),
         field('forced_regime','5','number'), field('alpha','0.05','number')]},
   ]},
-  { id:'evt', title:'Extreme Value Theory', desc:'GPD tail fitting and EVT-VaR', endpoints:[
+  { id:'evt', title:'Extreme Value Theory', desc:'GPD tail fitting and EVT-VaR — requires MSM calibration first', endpoints:[
     { method:'POST', path:'/evt/calibrate', desc:'Fit GPD',
       fields:[field('token','AAPL'),
         field('threshold_method','percentile','select',{options:['percentile','mean_excess','automated']}),
@@ -164,7 +166,7 @@ const SECTIONS = [
       fields:[field('confidence','99','number'), field('token','AAPL')]},
     { method:'GET', path:'/evt/diagnostics', fields:[field('token','AAPL')]},
   ]},
-  { id:'copula', title:'Copula Portfolio', desc:'Copula-based portfolio VaR', endpoints:[
+  { id:'copula', title:'Copula Portfolio', desc:'Copula-based portfolio VaR — requires portfolio calibration first', endpoints:[
     { method:'POST', path:'/portfolio/copula/var', desc:'Copula VaR',
       fields:[field('weights','{"AAPL":0.4,"MSFT":0.3,"GOOGL":0.3}','textarea'),
         field('alpha','0.05','number'), field('n_simulations','10000','number')]},
@@ -173,7 +175,7 @@ const SECTIONS = [
     { method:'GET', path:'/portfolio/copula/regime-var', desc:'Regime-dependent copula VaR',
       fields:[field('alpha','0.05','number'), field('n_simulations','10000','number')]},
   ]},
-  { id:'hawkes', title:'Hawkes Process', desc:'Self-exciting crash clustering', endpoints:[
+  { id:'hawkes', title:'Hawkes Process', desc:'Self-exciting crash clustering — requires MSM calibration first', endpoints:[
     { method:'POST', path:'/hawkes/calibrate', desc:'Fit Hawkes process',
       fields:[field('token','AAPL'), field('threshold_percentile','95','number'),
         field('use_absolute','true','select',{options:['true','false']})]},
@@ -186,14 +188,14 @@ const SECTIONS = [
       fields:[field('token','AAPL'), field('mu','','number'), field('alpha','','number'),
         field('beta','','number'), field('T','500','number'), field('seed','42','number')]},
   ]},
-  { id:'fractal', title:'Multifractal Analysis', desc:'Hurst exponent and fractal diagnostics', endpoints:[
+  { id:'fractal', title:'Multifractal Analysis', desc:'Hurst exponent and fractal diagnostics — requires MSM calibration first', endpoints:[
     { method:'GET', path:'/fractal/hurst',
       fields:[field('token','AAPL'), field('method','rs','select',{options:['rs','dfa']})]},
     { method:'GET', path:'/fractal/spectrum', fields:[field('token','AAPL')]},
     { method:'GET', path:'/fractal/regime-hurst', fields:[field('token','AAPL')]},
     { method:'GET', path:'/fractal/diagnostics', fields:[field('token','AAPL')]},
   ]},
-  { id:'rough', title:'Rough Volatility', desc:'rBergomi / rHeston models', endpoints:[
+  { id:'rough', title:'Rough Volatility', desc:'rBergomi / rHeston models — requires MSM calibration first', endpoints:[
     { method:'POST', path:'/rough/calibrate', desc:'Calibrate rough vol model',
       fields:[field('token','AAPL'),
         field('model','rough_bergomi','select',{options:['rough_bergomi','rough_heston']}),
@@ -204,7 +206,7 @@ const SECTIONS = [
       fields:[field('token','AAPL'), field('window','5','number'), field('max_lag','50','number')]},
     { method:'GET', path:'/rough/compare-msm', fields:[field('token','AAPL')]},
   ]},
-  { id:'svj', title:'SVJ Model', desc:'Stochastic Volatility with Jumps', endpoints:[
+  { id:'svj', title:'SVJ Model', desc:'Stochastic Volatility with Jumps — requires MSM calibration first', endpoints:[
     { method:'POST', path:'/svj/calibrate',
       fields:[field('token','AAPL'),
         field('use_hawkes','false','select',{options:['false','true']}),
@@ -215,7 +217,7 @@ const SECTIONS = [
     { method:'GET', path:'/svj/jump-risk', fields:[field('token','AAPL')]},
     { method:'GET', path:'/svj/diagnostics', fields:[field('token','AAPL')]},
   ]},
-  { id:'guardian', title:'Guardian Risk Veto', desc:'Unified risk assessment for trading', endpoints:[
+  { id:'guardian', title:'Guardian Risk Veto', desc:'Unified risk assessment — requires at least one model calibrated', endpoints:[
     { method:'POST', path:'/guardian/assess', desc:'Assess trade risk',
       fields:[field('token','AAPL'), field('trade_size_usd','10000','number'),
         field('direction','long','select',{options:['long','short']}),
@@ -235,7 +237,8 @@ SECTIONS.forEach(sec => {
 
   sec.endpoints.forEach(ep => {
     const uid = `ep-${eid++}`;
-    const details = el('details', {className:'endpoint'});
+    const details = el('details', {className:'endpoint' + (ep.primary ? ' primary' : '')});
+    if (ep.primary) details.setAttribute('open', '');
     const methodCls = 'method' + (ep.method === 'POST' ? ' post' : '');
     details.appendChild(el('summary', null,
       el('span', {className:methodCls}, ep.method),
@@ -393,7 +396,8 @@ async function runEndpoint(uid, ep) {
       statusEl.className = 'status ok';
       resultEl.className = 'result ok';
     } else {
-      statusEl.textContent = `✗ ${res.status} — ${elapsed}s`;
+      const detail = json.detail || `HTTP ${res.status}`;
+      statusEl.textContent = `✗ ${res.status} — ${detail}`;
       statusEl.className = 'status err';
       resultEl.className = 'result err';
     }
