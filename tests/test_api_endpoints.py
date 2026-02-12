@@ -145,40 +145,40 @@ class TestGuardianUnit:
         }
 
     def test_score_evt_low_risk(self):
-        from guardian import _score_evt
+        from cortex.guardian import _score_evt
         result = _score_evt(self._make_evt_data(xi=-0.2, beta=1.0))
         assert 0 <= result["score"] <= 100
         assert result["component"] == "evt"
         assert "var_995" in result["details"]
 
     def test_score_svj_low_jump(self):
-        from guardian import _score_svj
+        from cortex.guardian import _score_svj
         result = _score_svj(self._make_svj_data(lambda_=5.0))
         assert 0 <= result["score"] <= 100
         assert result["component"] == "svj"
         assert "jump_share_pct" in result["details"]
 
     def test_score_hawkes_low_risk(self):
-        from guardian import _score_hawkes
+        from cortex.guardian import _score_hawkes
         result = _score_hawkes(self._make_hawkes_data())
         assert 0 <= result["score"] <= 100
         assert result["component"] == "hawkes"
         assert "risk_level" in result["details"]
 
     def test_score_regime_calm(self):
-        from guardian import _score_regime
+        from cortex.guardian import _score_regime
         result = _score_regime(self._make_model_data(crisis=False))
         assert result["score"] < 30
         assert result["details"]["current_regime"] == 1
 
     def test_score_regime_crisis(self):
-        from guardian import _score_regime
+        from cortex.guardian import _score_regime
         result = _score_regime(self._make_model_data(crisis=True))
         assert result["score"] > 70
         assert result["details"]["current_regime"] == 5
 
     def test_assess_trade_approved(self):
-        from guardian import _cache, assess_trade
+        from cortex.guardian import _cache, assess_trade
         _cache.clear()
         result = assess_trade(
             token="TEST", trade_size_usd=10000.0, direction="long",
@@ -195,7 +195,7 @@ class TestGuardianUnit:
         assert result["recommended_size"] > 0
 
     def test_assess_trade_no_models(self):
-        from guardian import _cache, assess_trade
+        from cortex.guardian import _cache, assess_trade
         _cache.clear()
         result = assess_trade(
             token="EMPTY", trade_size_usd=5000.0, direction="short",
@@ -205,7 +205,7 @@ class TestGuardianUnit:
         assert result["confidence"] == 0.0
 
     def test_assess_trade_crisis_veto(self):
-        from guardian import _cache, assess_trade
+        from cortex.guardian import _cache, assess_trade
         _cache.clear()
         result = assess_trade(
             token="CRISIS", trade_size_usd=10000.0, direction="long",
@@ -216,7 +216,7 @@ class TestGuardianUnit:
         assert result["recommended_size"] < 10000.0
 
     def test_cache_hit(self):
-        from guardian import _cache, assess_trade
+        from cortex.guardian import _cache, assess_trade
         _cache.clear()
         r1 = assess_trade(
             token="CACHE", trade_size_usd=1000.0, direction="long",
@@ -232,7 +232,7 @@ class TestGuardianUnit:
         assert r2["from_cache"] is True
 
     def test_position_sizing_scales_down(self):
-        from guardian import _recommend_size
+        from cortex.guardian import _recommend_size
         full = _recommend_size(10000.0, 0.0, 1, 5)
         half = _recommend_size(10000.0, 50.0, 1, 5)
         crisis = _recommend_size(10000.0, 50.0, 5, 5)

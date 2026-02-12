@@ -127,8 +127,24 @@ def christoffersen_independence_test(breach_series):
 # -------------------------------------------------------
 
 
-def _build_transition_matrix(p_stay, K: int) -> np.ndarray:
-    """Build K×K transition matrix from scalar or per-regime p_stay."""
+def _build_transition_matrix(
+    p_stay,
+    K: int,
+    leverage_gamma: float = 0.0,
+    current_return: float = 0.0,
+) -> np.ndarray:
+    """Build K×K transition matrix from scalar or per-regime p_stay.
+
+    When ``leverage_gamma != 0`` the base matrix is adjusted so that
+    negative returns increase the probability of transitioning to
+    higher-volatility states (leverage / asymmetric effect):
+
+        P_ij(r_t) ∝ P_ij · exp(γ · r_t · (j − i))
+
+    With γ < 0 a negative return (r_t < 0) and an upward state move
+    (j > i) yields a positive exponent → higher transition probability.
+    Rows are re-normalised to sum to 1.
+    """
     p_arr = np.atleast_1d(np.asarray(p_stay, dtype=float))
     if p_arr.size == 1:
         p_arr = np.full(K, p_arr[0])
@@ -139,6 +155,16 @@ def _build_transition_matrix(p_stay, K: int) -> np.ndarray:
         off_diag = (1.0 - p_arr[k]) / max(K - 1, 1)
         P[k, :] = off_diag
         P[k, k] = p_arr[k]
+
+    if leverage_gamma != 0.0 and current_return != 0.0:
+        for i in range(K):
+            for j in range(K):
+                if i != j:
+                    P[i, j] *= np.exp(leverage_gamma * current_return * (j - i))
+            row_sum = P[i, :].sum()
+            if row_sum > 0:
+                P[i, :] /= row_sum
+
     return P
 
 
@@ -148,12 +174,17 @@ def msm_vol_forecast(
     sigma_low: float = 0.1,
     sigma_high: float = 1.0,
     p_stay=0.97,
+    leverage_gamma: float = 0.0,
 ):
     """
     MSM Bayesian filter with K volatility states.
 
     p_stay: float or array-like of length K. If scalar, all states share
             the same persistence. If array, each state k has its own p_stay[k].
+    leverage_gamma: Asymmetric leverage parameter. When != 0, the transition
+            matrix becomes time-varying: negative returns increase the
+            probability of transitioning to higher-volatility states.
+            Default 0.0 preserves the original symmetric behavior.
 
     Returns (sigma_forecast, sigma_filtered, filter_probs_df, sigma_states, P_matrix).
     """
@@ -166,6 +197,7 @@ def msm_vol_forecast(
     )
 
     P = _build_transition_matrix(p_stay, K)
+    use_leverage = (leverage_gamma != 0.0)
 
     # prior inițial: uniform
     pi_t = np.full(K, 1.0 / K)
@@ -174,19 +206,18 @@ def msm_vol_forecast(
     sigma_forecast = np.zeros(n)  # σ_{t|t-1} - FORECAST (out-of-sample)
     sigma_filtered = np.zeros(n)  # σ_t - FILTERED (in-sample)
     filter_probs = np.zeros((n, K))
-    
+
     eps = 1e-12
 
     for t in range(n):
         # 1) FORECAST: σ_{t|t-1} = E[σ | info_{t-1}]
-        # Aceasta e volatilitatea prezisă ÎNAINTE de a vedea r_t
         sigma_forecast[t] = np.sum(pi_t * sigmas)
-        
+
         # 2) UPDATE cu observația r_t (likelihood)
         like = (1.0 / (sigmas + eps)) * np.exp(
             -0.5 * (r[t] / (sigmas + eps)) ** 2
         )
-        
+
         # 3) Actualizare posterior: π_t ∝ π_{t|t-1} * likelihood
         pi_unnorm = pi_t * like
         s = pi_unnorm.sum()
@@ -194,13 +225,18 @@ def msm_vol_forecast(
             pi_t = pi_unnorm / s
         else:
             pi_t = np.full(K, 1.0 / K)
-        
+
         # 4) FILTERED: σ_t = E[σ | info_t] (după ce vedem r_t)
         sigma_filtered[t] = np.sum(pi_t * sigmas)
         filter_probs[t, :] = pi_t
-        
-        # 5) PREDICT pentru următorul pas: π_{t+1|t} = π_t @ P
-        pi_t = pi_t @ P
+
+        # 5) PREDICT: π_{t+1|t} = π_t @ P_t
+        # When leverage_gamma != 0, build time-varying P using current return
+        if use_leverage:
+            P_t = _build_transition_matrix(p_stay, K, leverage_gamma, r[t])
+            pi_t = pi_t @ P_t
+        else:
+            pi_t = pi_t @ P
 
     sigma_forecast_series = pd.Series(sigma_forecast, index=returns.index, name="sigma_forecast")
     sigma_filtered_series = pd.Series(sigma_filtered, index=returns.index, name="sigma_filtered")
@@ -217,12 +253,14 @@ def msm_vol_forecast(
 # 3b. CALIBRARE AVANSATĂ MSM - Maximum Likelihood Estimation
 # -------------------------------------------------------
 
-def msm_log_likelihood(params, returns, num_states=5):
+def msm_log_likelihood(params, returns, num_states=5, leverage_gamma=0.0):
     """
     Negative log-likelihood for MSM.
 
     params: [sigma_low, sigma_high, p_stay_1, ..., p_stay_K]
             OR [sigma_low, sigma_high, p_stay] (scalar — backward compat).
+    leverage_gamma: asymmetric leverage parameter. When != 0, the transition
+            matrix is rebuilt at each step using the current return.
     """
     if len(params) == 3:
         sigma_low, sigma_high, p_stay = params
@@ -245,37 +283,37 @@ def msm_log_likelihood(params, returns, num_states=5):
     sigmas = np.exp(np.linspace(np.log(sigma_low), np.log(sigma_high), K))
 
     P = _build_transition_matrix(p_stay_arr, K)
-    
-    # Prior uniform
+    use_leverage = (leverage_gamma != 0.0)
+
     pi_t = np.full(K, 1.0 / K)
-    
+
     log_likelihood = 0.0
     eps = 1e-12
-    
+
     for t in range(n):
-        # Likelihood pentru observația curentă
         like = (1.0 / (sigmas + eps)) * np.exp(-0.5 * (r[t] / (sigmas + eps)) ** 2)
-        
-        # Probabilitatea marginală a observației
+
         p_obs = np.dot(pi_t, like)
-        
+
         if p_obs > eps:
             log_likelihood += np.log(p_obs)
         else:
             log_likelihood += np.log(eps)
-        
-        # Update posterior
+
         pi_unnorm = pi_t * like
         s = pi_unnorm.sum()
         if s > eps:
             pi_t = pi_unnorm / s
         else:
             pi_t = np.full(K, 1.0 / K)
-        
-        # Predict next step
-        pi_t = pi_t @ P
-    
-    return -log_likelihood  # Returnăm negativul pentru minimizare
+
+        if use_leverage:
+            P_t = _build_transition_matrix(p_stay_arr, K, leverage_gamma, r[t])
+            pi_t = pi_t @ P_t
+        else:
+            pi_t = pi_t @ P
+
+    return -log_likelihood
 
 
 def calibrate_msm_advanced(
@@ -283,18 +321,19 @@ def calibrate_msm_advanced(
     num_states: int = 5,
     method: str = 'mle',
     target_var_breach: float = 0.05,
-    verbose: bool = True
+    verbose: bool = True,
+    leverage_gamma=None,
 ):
     """
     Calibrare avansată a parametrilor MSM.
-    
+
     Metode disponibile:
     -------------------
     1. 'mle' - Maximum Likelihood Estimation (optimizare numerică)
     2. 'grid' - Grid search cu cross-validation
     3. 'empirical' - Bazat pe quantile empirice + optimizare VaR breach
     4. 'hybrid' - Combinație MLE + ajustare VaR breach
-    
+
     Parametri:
     ----------
     returns : pd.Series - randamente în %
@@ -302,15 +341,30 @@ def calibrate_msm_advanced(
     method : str - metoda de calibrare ('mle', 'grid', 'empirical', 'hybrid')
     target_var_breach : float - rata țintă de VaR breach (default 5%)
     verbose : bool - afișează progresul
-    
+    leverage_gamma : float | str | None
+        Asymmetric leverage parameter for the transition matrix.
+        - None (default): no leverage effect, equivalent to 0.0
+        - float: use this fixed value (γ < 0 means negative returns
+          increase probability of transitioning to higher-vol states)
+        - "estimate": estimate γ via MLE (search range [-2.0, 0.0])
+
     Returnează:
     -----------
     dict cu parametrii calibrați și metrici de calitate
     """
     from scipy.optimize import minimize, differential_evolution
-    
+
     r = np.asarray(returns.values, dtype=float)
     std_r = np.std(r)
+
+    # Resolve leverage_gamma
+    _estimate_gamma = (leverage_gamma == "estimate")
+    if leverage_gamma is None:
+        leverage_gamma_val = 0.0
+    elif _estimate_gamma:
+        leverage_gamma_val = 0.0  # will be estimated below
+    else:
+        leverage_gamma_val = float(leverage_gamma)
     
     if verbose:
         print(f"\n{'='*60}")
@@ -349,7 +403,7 @@ def calibrate_msm_advanced(
                 result = minimize(
                     msm_log_likelihood,
                     x0=x0,
-                    args=(r, num_states),
+                    args=(r, num_states, leverage_gamma_val),
                     method='L-BFGS-B',
                     bounds=bounds,
                     options={'maxiter': 500, 'disp': False}
@@ -375,6 +429,8 @@ def calibrate_msm_advanced(
             p_stay = [0.97] * K
             if verbose:
                 print(f"\n   ⚠ MLE failed, using empirical fallback")
+
+
     
     # =========================================================================
     # METODA 2: Grid Search cu evaluare VaR
@@ -401,7 +457,8 @@ def calibrate_msm_advanced(
                     
                     # Run MSM - folosim sigma_forecast (out-of-sample)
                     sigma_forecast, _, _, _, _ = msm_vol_forecast(
-                        returns, num_states, sl, sh, ps
+                        returns, num_states, sl, sh, ps,
+                        leverage_gamma=leverage_gamma_val,
                     )
                     
                     # Calculate VaR breach rate (OUT-OF-SAMPLE corect)
@@ -475,7 +532,7 @@ def calibrate_msm_advanced(
             result = minimize(
                 msm_log_likelihood,
                 x0=x0,
-                args=(r, num_states),
+                args=(r, num_states, leverage_gamma_val),
                 method='L-BFGS-B',
                 bounds=bounds
             )
@@ -506,7 +563,8 @@ def calibrate_msm_advanced(
             test_sigma_high = sigma_high * scale_mid
             
             sigma_forecast, _, _, _, _ = msm_vol_forecast(
-                returns, num_states, test_sigma_low, test_sigma_high, p_stay
+                returns, num_states, test_sigma_low, test_sigma_high, p_stay,
+                leverage_gamma=leverage_gamma_val,
             )
             z_alpha = norm.ppf(target_var_breach)
             var_5 = z_alpha * sigma_forecast
@@ -534,7 +592,10 @@ def calibrate_msm_advanced(
         sigma_high *= best_scale
         
         # Verificare finală
-        sigma_forecast, _, _, _, _ = msm_vol_forecast(returns, num_states, sigma_low, sigma_high, p_stay)
+        sigma_forecast, _, _, _, _ = msm_vol_forecast(
+            returns, num_states, sigma_low, sigma_high, p_stay,
+            leverage_gamma=leverage_gamma_val,
+        )
         var_5 = z_alpha * sigma_forecast
         final_breach_check = (returns < var_5).mean()
         
@@ -553,10 +614,43 @@ def calibrate_msm_advanced(
     p_stay = [float(p) for p in p_stay]
 
     # =========================================================================
+    # LEVERAGE GAMMA ESTIMATION (if requested)
+    # =========================================================================
+    if _estimate_gamma:
+        from scipy.optimize import minimize_scalar
+
+        def _neg_ll_gamma(gamma):
+            """Negative log-likelihood as a function of leverage_gamma only."""
+            _r = r
+            _K = K
+            _sigmas = np.exp(np.linspace(np.log(sigma_low), np.log(sigma_high), _K))
+            _eps = 1e-12
+            _pi = np.full(_K, 1.0 / _K)
+            ll_val = 0.0
+            for t in range(len(_r)):
+                like = (1.0 / (_sigmas + _eps)) * np.exp(-0.5 * (_r[t] / (_sigmas + _eps)) ** 2)
+                weighted = _pi * like
+                s = weighted.sum()
+                if s > _eps and np.isfinite(s):
+                    ll_val += np.log(s)
+                    _pi = weighted / s
+                else:
+                    _pi = np.full(_K, 1.0 / _K)
+                P_t = _build_transition_matrix(p_stay, _K, gamma, _r[t])
+                _pi = _pi @ P_t
+            return -ll_val
+
+        res_gamma = minimize_scalar(_neg_ll_gamma, bounds=(-2.0, 0.0), method='bounded')
+        leverage_gamma_val = float(res_gamma.x)
+        if verbose:
+            print(f"   Estimated leverage_gamma: {leverage_gamma_val:.4f}")
+
+    # =========================================================================
     # FINAL VALIDATION
     # =========================================================================
     sigma_forecast_final, sigma_filtered_final, filter_probs_final, sigmas_final, P_final = msm_vol_forecast(
-        returns, num_states, sigma_low, sigma_high, p_stay
+        returns, num_states, sigma_low, sigma_high, p_stay,
+        leverage_gamma=leverage_gamma_val,
     )
 
     z_alpha = norm.ppf(target_var_breach)
@@ -565,9 +659,9 @@ def calibrate_msm_advanced(
     final_corr = np.corrcoef(np.abs(r), sigma_forecast_final.values)[0, 1]
 
     n = len(r)
-    num_params = 2 + len(p_stay)
+    num_params = 2 + len(p_stay) + (1 if leverage_gamma_val != 0.0 else 0)
     ll_params = [sigma_low, sigma_high] + p_stay
-    ll = -msm_log_likelihood(ll_params, r, num_states)
+    ll = -msm_log_likelihood(ll_params, r, num_states, leverage_gamma=leverage_gamma_val)
     aic = 2 * num_params - 2 * ll
     bic = num_params * np.log(n) - 2 * ll
 
@@ -578,6 +672,7 @@ def calibrate_msm_advanced(
         'num_states': num_states,
         'sigma_states': sigmas_final,
         'method': method,
+        'leverage_gamma': leverage_gamma_val,
         'metrics': {
             'var_breach_rate': final_breach,
             'vol_correlation': final_corr,
@@ -595,6 +690,7 @@ def calibrate_msm_advanced(
         print(f"   σ_high:   {sigma_high:.4f}%")
         print(f"   p_stay:   {[f'{p:.4f}' for p in p_stay]}")
         print(f"   States:   {num_states}")
+        print(f"   leverage_γ: {leverage_gamma_val:.4f}")
         print(f"\n   Sigma states: {np.round(sigmas_final, 3)}")
         print(f"\n   --- Quality Metrics ---")
         print(f"   VaR breach rate: {final_breach*100:.2f}% (target: {target_var_breach*100:.1f}%)")
@@ -699,6 +795,9 @@ def msm_var_forecast_next_day(
     alpha=0.05, mu=0.0,
     use_student_t: bool = False, nu: float = 5.0,
     use_evt: bool = False, evt_params: dict | None = None,
+    leverage_gamma: float = 0.0,
+    last_return: float = 0.0,
+    p_stay=None,
 ):
     """
     VaR(alpha) forecast for the next day using the transition matrix.
@@ -708,6 +807,11 @@ def msm_var_forecast_next_day(
       2. use_student_t=True → Student-t quantile
       3. default → Normal quantile
 
+    leverage_gamma: When != 0, the prediction step uses a leverage-adjusted
+        transition matrix based on last_return.
+    last_return: The most recent return, used to build the leverage-adjusted P.
+    p_stay: Required when leverage_gamma != 0 to rebuild the transition matrix.
+
     evt_params must contain: xi, beta, threshold, n_total, n_exceedances
     """
     if use_student_t:
@@ -715,7 +819,15 @@ def msm_var_forecast_next_day(
             raise ValueError("Student-t df (nu) must be > 2 for finite variance")
 
     pi_t = np.asarray(filter_probs.iloc[-1] if hasattr(filter_probs, 'iloc') else filter_probs[-1])
-    pi_t1_given_t = pi_t @ P_matrix
+
+    # Use leverage-adjusted P for the prediction step when leverage_gamma != 0
+    if leverage_gamma != 0.0 and p_stay is not None:
+        K = len(sigma_states)
+        P_leverage = _build_transition_matrix(p_stay, K, leverage_gamma, last_return)
+        pi_t1_given_t = pi_t @ P_leverage
+    else:
+        pi_t1_given_t = pi_t @ P_matrix
+
     sigma_t1_forecast = float(np.dot(pi_t1_given_t, sigma_states))
 
     # EVT for extreme tail (alpha < 0.01)
