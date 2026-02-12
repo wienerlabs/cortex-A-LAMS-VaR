@@ -130,6 +130,8 @@ button:disabled{opacity:.4;cursor:not-allowed;transform:none}
 <a href="#social">Social</a>
 <a href="#macro">Macro</a>
 <a href="#streams">Streams</a>
+<a href="#portrisk">Port. Risk</a>
+<a href="#caltasks">Calibration</a>
 <a href="#guardian">Guardian</a>
 </nav>
 
@@ -321,12 +323,45 @@ const SECTIONS = [
         field('severity','','select',{options:['','info','warning','critical']})]},
     { method:'GET', path:'/streams/status', desc:'Stream connection status', fields:[]},
   ]},
+  { id:'portrisk', title:'Portfolio Risk Management', badge:'Live tracking', desc:'Position tracking, drawdown monitoring, and risk limit enforcement', endpoints:[
+    { method:'GET', path:'/portfolio/positions', desc:'List all open positions', fields:[]},
+    { method:'POST', path:'/portfolio/positions', desc:'Add or update a position',
+      fields:[field('token','SOL'), field('size_usd','10000','number'),
+        field('direction','long','select',{options:['long','short']}),
+        field('entry_price','0','number')]},
+    { method:'POST', path:'/portfolio/positions/close', desc:'Close a position and record PnL',
+      fields:[field('token','SOL'), field('pnl','0','number')]},
+    { method:'POST', path:'/portfolio/value', desc:'Set total portfolio value',
+      fields:[field('value','100000','number')]},
+    { method:'GET', path:'/portfolio/drawdown', desc:'Drawdown metrics', fields:[]},
+    { method:'GET', path:'/portfolio/limits', desc:'Check risk limits for a token',
+      fields:[field('token','SOL')]},
+  ]},
+  { id:'caltasks', title:'Calibration Tasks', badge:'Async', desc:'Poll status of long-running async calibration jobs', endpoints:[
+    { method:'GET', path:'/calibrate/status/{task_id}', desc:'Get calibration task status',
+      fields:[field('task_id','','text',{placeholder:'Task ID from calibrate response'})]},
+  ]},
   { id:'guardian', title:'Guardian Risk Veto', badge:'Decision engine', desc:'Unified risk assessment — aggregates all models into a GO/NO-GO signal', endpoints:[
-    { method:'POST', path:'/guardian/assess', desc:'Assess trade risk',
+    { method:'POST', path:'/guardian/assess', desc:'Assess trade risk', primary:true,
       fields:[field('token','SOL'), field('trade_size_usd','10000','number'),
         field('direction','long','select',{options:['long','short']}),
         field('urgency','false','select',{options:['false','true']}),
-        field('max_slippage_pct','1.0','number')]},
+        field('max_slippage_pct','1.0','number'),
+        field('strategy','','select',{options:['','lp','arb','perp']}),
+        field('run_debate','false','select',{options:['false','true']})]},
+    { method:'GET', path:'/guardian/kelly-stats', desc:'Kelly criterion statistics', fields:[]},
+    { method:'POST', path:'/guardian/trade-outcome', desc:'Record a trade outcome for Kelly tracking',
+      fields:[field('pnl','0','number'), field('size','1000','number'), field('token','SOL')]},
+    { method:'GET', path:'/guardian/circuit-breakers', desc:'Circuit breaker states', fields:[]},
+    { method:'POST', path:'/guardian/circuit-breakers/reset', desc:'Reset circuit breakers',
+      fields:[field('name','','text',{placeholder:'Breaker name (empty = reset all)'})]},
+    { method:'POST', path:'/guardian/debate', desc:'Run adversarial debate (standalone)',
+      fields:[field('token','SOL'), field('trade_size_usd','10000','number'),
+        field('direction','long','select',{options:['long','short']}),
+        field('urgency','false','select',{options:['false','true']}),
+        field('max_slippage_pct','1.0','number'),
+        field('strategy','','select',{options:['','lp','arb','perp']}),
+        field('run_debate','true','select',{options:['false','true']})]},
   ]},
 ];
 
@@ -546,10 +581,11 @@ async function runEndpoint(uid, ep) {
     });
     ['alpha','confidence','target_var_breach','nu','threshold','T',
      'trade_size_usd','max_slippage_pct','max_multiplier','mu',
-     'jump_threshold_multiplier','position_value','adv_usd','participation_rate'].forEach(k => {
+     'jump_threshold_multiplier','position_value','adv_usd','participation_rate',
+     'size_usd','entry_price','pnl','value','size'].forEach(k => {
       if (data[k] !== undefined) data[k] = parseFloat(data[k]);
     });
-    ['use_student_t','use_absolute','urgency','use_hawkes'].forEach(k => {
+    ['use_student_t','use_absolute','urgency','use_hawkes','run_debate'].forEach(k => {
       if (data[k] !== undefined) data[k] = data[k] === 'true';
     });
 

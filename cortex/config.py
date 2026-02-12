@@ -158,7 +158,33 @@ EXECUTION_MEV_PROTECTION = os.environ.get("EXECUTION_MEV_PROTECTION", "true").lo
 SIMULATION_MODE = os.environ.get("SIMULATION_MODE", "true").lower() != "false"
 TRADING_MODE = os.environ.get("TRADING_MODE", "NORMAL")
 
+# ── On-Chain Data Pipeline (Wave 10) ──
+
+HELIUS_RPC_URL = os.environ.get(
+    "HELIUS_RPC_URL",
+    f"https://mainnet.helius-rpc.com/?api-key={HELIUS_API_KEY}" if HELIUS_API_KEY else "",
+)
+ONCHAIN_HTTP_TIMEOUT = float(os.environ.get("ONCHAIN_HTTP_TIMEOUT", "30"))
+ONCHAIN_MAX_CONNECTIONS = int(os.environ.get("ONCHAIN_MAX_CONNECTIONS", "10"))
+ONCHAIN_CACHE_TTL = float(os.environ.get("ONCHAIN_CACHE_TTL", "60"))
+
+# DEX program IDs (Solana mainnet)
+RAYDIUM_AMM_V4 = "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8"
+RAYDIUM_CLMM = "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK"
+ORCA_WHIRLPOOL = "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc"
+METEORA_DLMM = "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo"
+
+# On-chain event thresholds
+ONCHAIN_LARGE_SWAP_USD = float(os.environ.get("ONCHAIN_LARGE_SWAP_USD", "50000"))
+ONCHAIN_ORACLE_JUMP_PCT = float(os.environ.get("ONCHAIN_ORACLE_JUMP_PCT", "2.0"))
+ONCHAIN_FUNDING_SPIKE_BPS = float(os.environ.get("ONCHAIN_FUNDING_SPIKE_BPS", "50"))
+ONCHAIN_EVENT_LOOKBACK_SLOTS = int(os.environ.get("ONCHAIN_EVENT_LOOKBACK_SLOTS", "216000"))
+
+# Tick data
+TICK_DEFAULT_LOOKBACK_DAYS = int(os.environ.get("TICK_DEFAULT_LOOKBACK_DAYS", "7"))
+TICK_MAX_BARS = int(os.environ.get("TICK_MAX_BARS", "10000"))
+
 # ── API ──
 
-API_VERSION = os.environ.get("API_VERSION", "1.1.0")
+API_VERSION = os.environ.get("API_VERSION", "1.2.0")
 

@@ -1299,3 +1299,187 @@ class TaskStatusResponse(BaseModel):
     created_at: str
     started_at: str | None = None
     completed_at: str | None = None
+
+
+# ── On-Chain Liquidity (Wave 10.1) ─────────────────────────────────
+
+
+class OnchainDepthRequest(BaseModel):
+    pool_address: str = Field(..., description="CLMM pool address (Raydium/Orca)")
+    num_ticks: int = Field(50, ge=5, le=200, description="Number of ticks per side")
+
+
+class OnchainDepthResponse(BaseModel):
+    pool: str
+    current_price: float
+    bid_prices: list[float]
+    ask_prices: list[float]
+    bid_depth: list[float]
+    ask_depth: list[float]
+    total_bid_liquidity: float
+    total_ask_liquidity: float
+    depth_imbalance: float
+    timestamp: datetime
+
+
+class DexSpreadItem(BaseModel):
+    dex: str
+    mean_spread_pct: float
+    std_spread_pct: float
+    n_swaps: int
+
+
+class RealizedSpreadRequest(BaseModel):
+    token_address: str = Field(..., description="Solana token mint address")
+    limit: int = Field(100, ge=10, le=500, description="Number of swaps to analyze")
+
+
+class RealizedSpreadResponse(BaseModel):
+    token_address: str
+    realized_spread_pct: float
+    realized_spread_vol_pct: float
+    n_swaps: int
+    by_dex: list[DexSpreadItem]
+    vwas_pct: float = Field(..., description="Volume-weighted average spread")
+    total_volume: float
+    timestamp: datetime
+
+
+class OnchainLVaRRequest(BaseModel):
+    token: str = Field(..., description="Token key from _model_store (must be calibrated)")
+    token_address: str | None = Field(None, description="Solana token mint for on-chain spread")
+    pair_address: str | None = Field(None, description="Axiom pair address for live spread")
+    confidence: float = Field(95.0, gt=50.0, le=99.99)
+    position_value: float = Field(100_000.0, gt=0)
+    holding_period: int = Field(1, ge=1, le=30)
+
+
+class OnchainLVaRResponse(BaseModel):
+    token: str
+    lvar: float
+    base_var: float
+    liquidity_cost_pct: float
+    spread_pct: float
+    spread_source: str = Field(..., description="onchain|axiom|roll|default")
+    by_dex: list[DexSpreadItem] | None = None
+    confidence: float
+    holding_period: int
+    position_value: float
+    timestamp: datetime
+
+
+# ── Tick-Level Backtesting (Wave 10.2) ─────────────────────────────
+
+
+class TickDataRequest(BaseModel):
+    token_address: str = Field(..., description="Solana token mint address")
+    lookback_days: int = Field(7, ge=1, le=90)
+    bar_type: str = Field("time", description="time|volume|tick|imbalance")
+    bar_size: int = Field(300, ge=1, description="Bar size (seconds for time, units for others)")
+    limit: int = Field(1000, ge=100, le=10000)
+
+
+class TickBar(BaseModel):
+    timestamp: float
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: float
+    n_ticks: int
+    vwap: float
+
+
+class TickDataResponse(BaseModel):
+    token_address: str
+    bar_type: str
+    bar_size: int
+    n_bars: int
+    bars: list[TickBar]
+    timestamp: datetime
+
+
+class BacktestRequest(BaseModel):
+    token: str = Field(..., description="Token key from _model_store")
+    token_address: str | None = Field(None, description="Solana token mint for tick data")
+    horizons: list[int] = Field([60, 240], description="Backtest horizons in minutes")
+    confidence: float = Field(95.0, gt=50.0, le=99.99)
+    lookback_days: int = Field(30, ge=7, le=90)
+
+
+class BacktestHorizonResult(BaseModel):
+    horizon_minutes: int
+    n_observations: int
+    n_violations: int
+    violation_rate: float
+    expected_rate: float
+    kupiec_stat: float
+    kupiec_pvalue: float
+    kupiec_pass: bool
+    christoffersen_stat: float | None = None
+    christoffersen_pvalue: float | None = None
+
+
+class BacktestResponse(BaseModel):
+    token: str
+    confidence: float
+    horizons: list[BacktestHorizonResult]
+    overall_pass: bool
+    timestamp: datetime
+
+
+# ── On-Chain Events for Hawkes (Wave 10.3) ─────────────────────────
+
+
+class OnchainEventItem(BaseModel):
+    event_type: str
+    slot: int
+    timestamp: float
+    magnitude: float
+    details: dict = Field(default_factory=dict)
+
+
+class OnchainEventsResponse(BaseModel):
+    token_address: str
+    events: list[OnchainEventItem]
+    n_events: int
+    event_type_counts: dict[str, int]
+    timestamp: datetime
+
+
+class HawkesOnchainCalibrateRequest(BaseModel):
+    token_address: str = Field(..., description="Solana token mint address")
+    event_types: list[str] = Field(
+        ["large_swap", "oracle_jump", "liquidation"],
+        description="Event types to include",
+    )
+    lookback_slots: int = Field(216000, ge=1000, description="Lookback window in slots (~24h = 216000)")
+
+
+class CrossExcitationEntry(BaseModel):
+    source: str
+    target: str
+    alpha: float = Field(..., description="Excitation magnitude")
+    beta: float = Field(..., description="Decay rate")
+
+
+class HawkesOnchainCalibrateResponse(BaseModel):
+    token_address: str
+    event_types: list[str]
+    n_events_per_type: dict[str, int]
+    mu: dict[str, float] = Field(..., description="Baseline intensity per event type")
+    cross_excitation: list[CrossExcitationEntry]
+    branching_matrix: list[list[float]]
+    spectral_radius: float
+    stationary: bool
+    timestamp: datetime
+
+
+class HawkesOnchainRiskResponse(BaseModel):
+    token_address: str
+    flash_crash_score: float = Field(..., description="0-100 risk score")
+    current_intensities: dict[str, float]
+    baseline_intensities: dict[str, float]
+    dominant_event_type: str
+    risk_level: str
+    timestamp: datetime
