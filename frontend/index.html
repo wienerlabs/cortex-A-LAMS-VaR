@@ -100,9 +100,10 @@ const SECTIONS = [
   { id:'msm', title:'MSM Core', desc:'Calibrate MSM model and query VaR, volatility, backtest', endpoints:[
     { method:'POST', path:'/calibrate', desc:'⬤ START HERE — Calibrate MSM model for a token. Required before most other endpoints.', primary:true,
       fields:[
-        field('token','AAPL'), field('start_date','2024-01-01'), field('end_date','2025-01-01'),
+        field('token','SOL','text',{placeholder:'Ticker (AAPL) or Solana symbol (SOL, RAY, JUP, BONK) or mint address'}),
+        field('data_source','solana','select',{options:['solana','yfinance']}),
+        field('start_date','2024-01-01'), field('end_date','2025-01-01'),
         field('num_states','5','number'), field('method','empirical','select',{options:['mle','grid','empirical','hybrid']}),
-        field('data_source','yfinance','select',{options:['solana','yfinance']}),
         field('target_var_breach','0.05','number'), field('interval','1D'),
         field('use_student_t','false','select',{options:['false','true']}), field('nu','5.0','number'),
       ]},
@@ -141,11 +142,11 @@ const SECTIONS = [
       fields:[field('token','AAPL'), field('alpha','0.05','number')]},
   ]},
   { id:'portfolio', title:'Portfolio VaR', desc:'Multi-asset portfolio risk', endpoints:[
-    { method:'POST', path:'/portfolio/calibrate', desc:'Calibrate portfolio',
-      fields:[field('tokens','AAPL,MSFT,GOOGL','text',{placeholder:'comma-separated'}),
-        field('weights','{"AAPL":0.4,"MSFT":0.3,"GOOGL":0.3}','textarea'),
+    { method:'POST', path:'/portfolio/calibrate', desc:'Calibrate portfolio — use tickers (yfinance) or Solana symbols/mint addresses',
+      fields:[field('tokens','SOL,RAY,JUP','text',{placeholder:'comma-separated: SOL,RAY,JUP or AAPL,MSFT,GOOGL'}),
+        field('weights','{"SOL":0.4,"RAY":0.3,"JUP":0.3}','textarea'),
         field('num_states','5','number'), field('method','mle','select',{options:['mle','grid','empirical','hybrid']}),
-        field('period','2y'), field('data_source','yfinance','select',{options:['yfinance','solana']}),
+        field('period','2y'), field('data_source','solana','select',{options:['solana','yfinance']}),
         field('copula_family','','select',{options:['','gaussian','student_t','clayton','gumbel','frank','auto']})]},
     { method:'POST', path:'/portfolio/var', desc:'Portfolio VaR (custom weights)',
       fields:[field('weights','{"AAPL":0.4,"MSFT":0.3,"GOOGL":0.3}','textarea'),
