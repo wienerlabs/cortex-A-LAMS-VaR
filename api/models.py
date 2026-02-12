@@ -1483,3 +1483,24 @@ class HawkesOnchainRiskResponse(BaseModel):
     dominant_event_type: str
     risk_level: str
     timestamp: datetime
+
+
+# ── Token Info (Token Card) ───────────────────────────────────────
+
+
+class TokenInfoResponse(BaseModel):
+    address: str
+    name: str
+    symbol: str
+    logo_uri: str = ""
+    decimals: int = 0
+    price_usd: float = 0.0
+    price_change_24h_pct: float = 0.0
+    market_cap: float = 0.0
+    volume_24h_usd: float = 0.0
+    liquidity_usd: float = 0.0
+    holder_count: int = 0
+    deployer: str = ""
+    created_at: str | int | None = None
+    dex_platform: str = ""
+    timestamp: datetime

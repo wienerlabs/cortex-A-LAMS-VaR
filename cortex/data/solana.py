@@ -372,6 +372,49 @@ def get_market_depth(
 
 
 
+def get_token_metadata(token: str) -> dict:
+    """Fetch token metadata from Birdeye /defi/token_overview.
+
+    Returns name, symbol, logo, price, 24h change, market cap, volume,
+    liquidity, holder count, deployer address, creation date, and DEX info.
+    """
+    address = _resolve_token_address(token)
+
+    resp = _pool.get(
+        f"{BIRDEYE_BASE}/defi/token_overview",
+        headers=_birdeye_headers(),
+        params={"address": address},
+    )
+    resp.raise_for_status()
+    d = resp.json().get("data", {})
+
+    price = float(d.get("price", 0) or 0)
+    price_change_24h = float(d.get("priceChange24hPercent", 0) or 0)
+    mc = float(d.get("mc", 0) or d.get("realMc", 0) or 0)
+    volume_24h = float(d.get("v24hUSD", 0) or 0)
+    liquidity = float(d.get("liquidity", 0) or 0)
+    holder = int(d.get("holder", 0) or 0)
+
+    extensions = d.get("extensions", {}) or {}
+    created_at = d.get("createdAt") or d.get("lastTradeUnixTime")
+
+    return {
+        "address": address,
+        "name": d.get("name") or d.get("symbol") or address[:8],
+        "symbol": d.get("symbol", ""),
+        "logo_uri": d.get("logoURI") or d.get("icon") or extensions.get("imageUrl") or "",
+        "decimals": int(d.get("decimals", 0) or 0),
+        "price_usd": price,
+        "price_change_24h_pct": price_change_24h,
+        "market_cap": mc,
+        "volume_24h_usd": volume_24h,
+        "liquidity_usd": liquidity,
+        "holder_count": holder,
+        "deployer": d.get("owner") or d.get("creator") or "",
+        "created_at": created_at,
+        "dex_platform": d.get("lastTradeHumanTime") and "Solana DEX" or "",
+    }
+
 
 # ── Axiom-enhanced price feeds ──
 
