@@ -1,10 +1,12 @@
 """Hawkes process endpoints: calibrate, intensity, clusters, VaR, simulate."""
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 
 import numpy as np
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import JSONResponse
 
 from api.models import (
     HawkesCalibrateRequest,
@@ -24,8 +26,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["hawkes"])
 
 
-@router.post("/hawkes/calibrate", response_model=HawkesCalibrateResponse)
-async def hawkes_calibrate(req: HawkesCalibrateRequest):
+def _hawkes_calibrate_sync(req: HawkesCalibrateRequest) -> dict:
+    """CPU-bound Hawkes calibration — runs in thread pool."""
     from cortex.hawkes import extract_events, fit_hawkes
 
     m = _get_model(req.token)
@@ -53,20 +55,52 @@ async def hawkes_calibrate(req: HawkesCalibrateRequest):
         "threshold": ev["threshold"],
     }
 
+    return {
+        "token": req.token,
+        "mu": params["mu"],
+        "alpha": params["alpha"],
+        "beta": params["beta"],
+        "branching_ratio": params["branching_ratio"],
+        "half_life": params["half_life"],
+        "stationary": params["stationary"],
+        "n_events": params["n_events"],
+        "log_likelihood": params["log_likelihood"],
+        "aic": params["aic"],
+        "bic": params["bic"],
+        "threshold": ev["threshold"],
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@router.post("/hawkes/calibrate")
+async def hawkes_calibrate(req: HawkesCalibrateRequest, async_mode: bool = Query(False)):
+    from api.tasks import create_task, run_in_background
+
+    if async_mode:
+        task_id = create_task("/hawkes/calibrate")
+        asyncio.ensure_future(run_in_background(task_id, _hawkes_calibrate_sync, req))
+        return JSONResponse(content={
+            "task_id": task_id,
+            "status": "pending",
+            "endpoint": "/hawkes/calibrate",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+
+    result = await asyncio.to_thread(_hawkes_calibrate_sync, req)
     return HawkesCalibrateResponse(
-        token=req.token,
-        mu=params["mu"],
-        alpha=params["alpha"],
-        beta=params["beta"],
-        branching_ratio=params["branching_ratio"],
-        half_life=params["half_life"],
-        stationary=params["stationary"],
-        n_events=params["n_events"],
-        log_likelihood=params["log_likelihood"],
-        aic=params["aic"],
-        bic=params["bic"],
-        threshold=ev["threshold"],
-        timestamp=datetime.now(timezone.utc),
+        token=result["token"],
+        mu=result["mu"],
+        alpha=result["alpha"],
+        beta=result["beta"],
+        branching_ratio=result["branching_ratio"],
+        half_life=result["half_life"],
+        stationary=result["stationary"],
+        n_events=result["n_events"],
+        log_likelihood=result["log_likelihood"],
+        aic=result["aic"],
+        bic=result["bic"],
+        threshold=result["threshold"],
+        timestamp=result["timestamp"],
     )
 
 

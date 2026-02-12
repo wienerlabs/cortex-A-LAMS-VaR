@@ -1,11 +1,13 @@
 """Portfolio VaR endpoints: calibrate, VaR, marginal-VaR, stress-VaR, copula."""
 
+import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 
 import numpy as np
 import pandas as pd
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import JSONResponse
 
 from api.models import (
     AssetDecompositionItem,
@@ -81,8 +83,8 @@ def _load_portfolio_returns(req: PortfolioCalibrateRequest) -> pd.DataFrame:
     return returns_df
 
 
-@router.post("/portfolio/calibrate", response_model=PortfolioVaRResponse)
-def calibrate_portfolio(req: PortfolioCalibrateRequest):
+def _portfolio_calibrate_sync(req: PortfolioCalibrateRequest) -> dict:
+    """CPU-bound portfolio calibration — runs in thread pool."""
     from cortex.portfolio import calibrate_multivariate, portfolio_var as pvar_fn
 
     returns_df = _load_portfolio_returns(req)
@@ -101,13 +103,38 @@ def calibrate_portfolio(req: PortfolioCalibrateRequest):
         _copula_store[_PORTFOLIO_KEY] = copula_fit
 
     result = pvar_fn(model, req.weights, alpha=0.05)
+    return {
+        "portfolio_var": result["portfolio_var"],
+        "portfolio_sigma": result["portfolio_sigma"],
+        "z_alpha": result["z_alpha"],
+        "weights": result["weights"],
+        "regime_breakdown": result["regime_breakdown"],
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@router.post("/portfolio/calibrate")
+async def calibrate_portfolio(req: PortfolioCalibrateRequest, async_mode: bool = Query(False)):
+    from api.tasks import create_task, run_in_background
+
+    if async_mode:
+        task_id = create_task("/portfolio/calibrate")
+        asyncio.ensure_future(run_in_background(task_id, _portfolio_calibrate_sync, req))
+        return JSONResponse(content={
+            "task_id": task_id,
+            "status": "pending",
+            "endpoint": "/portfolio/calibrate",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+
+    result = await asyncio.to_thread(_portfolio_calibrate_sync, req)
     return PortfolioVaRResponse(
         portfolio_var=result["portfolio_var"],
         portfolio_sigma=result["portfolio_sigma"],
         z_alpha=result["z_alpha"],
         weights=result["weights"],
         regime_breakdown=[RegimeBreakdownItem(**rb) for rb in result["regime_breakdown"]],
-        timestamp=datetime.now(timezone.utc),
+        timestamp=result["timestamp"],
     )
 
 

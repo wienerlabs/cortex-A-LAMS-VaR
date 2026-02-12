@@ -1,10 +1,12 @@
 """EVT (Extreme Value Theory) endpoints: calibrate, VaR, diagnostics."""
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 
 import numpy as np
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import JSONResponse
 
 from api.models import (
     EVTBacktestRow,
@@ -21,8 +23,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["evt"])
 
 
-@router.post("/evt/calibrate", response_model=EVTCalibrateResponse)
-def evt_calibrate(req: EVTCalibrateRequest):
+def _evt_calibrate_sync(req: EVTCalibrateRequest) -> dict:
+    """CPU-bound EVT calibration — runs in thread pool."""
     from cortex.evt import fit_gpd, select_threshold
 
     m = _get_model(req.token)
@@ -49,18 +51,48 @@ def evt_calibrate(req: EVTCalibrateRequest):
         "threshold_method": req.threshold_method.value,
     }
 
+    return {
+        "token": req.token,
+        "xi": gpd["xi"],
+        "beta": gpd["beta"],
+        "threshold": gpd["threshold"],
+        "n_total": gpd["n_total"],
+        "n_exceedances": gpd["n_exceedances"],
+        "log_likelihood": gpd["log_likelihood"],
+        "aic": gpd["aic"],
+        "bic": gpd["bic"],
+        "threshold_method": req.threshold_method.value,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@router.post("/evt/calibrate")
+async def evt_calibrate(req: EVTCalibrateRequest, async_mode: bool = Query(False)):
+    from api.tasks import create_task, run_in_background
+
+    if async_mode:
+        task_id = create_task("/evt/calibrate")
+        asyncio.ensure_future(run_in_background(task_id, _evt_calibrate_sync, req))
+        return JSONResponse(content={
+            "task_id": task_id,
+            "status": "pending",
+            "endpoint": "/evt/calibrate",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+
+    result = await asyncio.to_thread(_evt_calibrate_sync, req)
     return EVTCalibrateResponse(
-        token=req.token,
-        xi=gpd["xi"],
-        beta=gpd["beta"],
-        threshold=gpd["threshold"],
-        n_total=gpd["n_total"],
-        n_exceedances=gpd["n_exceedances"],
-        log_likelihood=gpd["log_likelihood"],
-        aic=gpd["aic"],
-        bic=gpd["bic"],
-        threshold_method=req.threshold_method.value,
-        timestamp=datetime.now(timezone.utc),
+        token=result["token"],
+        xi=result["xi"],
+        beta=result["beta"],
+        threshold=result["threshold"],
+        n_total=result["n_total"],
+        n_exceedances=result["n_exceedances"],
+        log_likelihood=result["log_likelihood"],
+        aic=result["aic"],
+        bic=result["bic"],
+        threshold_method=result["threshold_method"],
+        timestamp=result["timestamp"],
     )
 
 

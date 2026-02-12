@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 
 import numpy as np
 from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi.responses import JSONResponse
 
 from api.models import (
     BacktestSummaryResponse,
@@ -26,8 +27,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["msm"])
 
 
-@router.post("/calibrate", response_model=CalibrateResponse)
-def calibrate(req: CalibrateRequest):
+def _calibrate_sync(req: CalibrateRequest) -> dict:
+    """CPU-bound MSM calibration — runs in thread pool."""
     from cortex import msm
 
     try:
@@ -72,17 +73,46 @@ def calibrate(req: CalibrateRequest):
         "calibrated_at": datetime.now(timezone.utc),
     }
 
+    return {
+        "token": req.token,
+        "method": cal["method"],
+        "num_states": cal["num_states"],
+        "sigma_low": cal["sigma_low"],
+        "sigma_high": cal["sigma_high"],
+        "p_stay": cal["p_stay"],
+        "sigma_states": cal["sigma_states"].tolist(),
+        "leverage_gamma": leverage_gamma_val,
+        "metrics": cal["metrics"],
+        "calibrated_at": _model_store[req.token]["calibrated_at"].isoformat(),
+    }
+
+
+@router.post("/calibrate")
+async def calibrate(req: CalibrateRequest, async_mode: bool = Query(False)):
+    from api.tasks import create_task, run_in_background
+
+    if async_mode:
+        task_id = create_task("/calibrate")
+        asyncio.ensure_future(run_in_background(task_id, _calibrate_sync, req))
+        return JSONResponse(content={
+            "task_id": task_id,
+            "status": "pending",
+            "endpoint": "/calibrate",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+
+    result = await asyncio.to_thread(_calibrate_sync, req)
     return CalibrateResponse(
-        token=req.token,
-        method=cal["method"],
-        num_states=cal["num_states"],
-        sigma_low=cal["sigma_low"],
-        sigma_high=cal["sigma_high"],
-        p_stay=cal["p_stay"],
-        sigma_states=cal["sigma_states"].tolist(),
-        leverage_gamma=leverage_gamma_val,
-        metrics=CalibrationMetrics(**cal["metrics"]),
-        calibrated_at=_model_store[req.token]["calibrated_at"],
+        token=result["token"],
+        method=result["method"],
+        num_states=result["num_states"],
+        sigma_low=result["sigma_low"],
+        sigma_high=result["sigma_high"],
+        p_stay=result["p_stay"],
+        sigma_states=result["sigma_states"],
+        leverage_gamma=result["leverage_gamma"],
+        metrics=CalibrationMetrics(**result["metrics"]),
+        calibrated_at=result["calibrated_at"],
     )
 
 

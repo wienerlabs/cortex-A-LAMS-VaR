@@ -1,9 +1,11 @@
 """SVJ (Stochastic Volatility with Jumps) endpoints."""
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import JSONResponse
 
 from api.models import (
     SVJCalibrateRequest,
@@ -25,8 +27,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["svj"])
 
 
-@router.post("/svj/calibrate", response_model=SVJCalibrateResponse)
-def svj_calibrate(req: SVJCalibrateRequest):
+def _svj_calibrate_sync(req: SVJCalibrateRequest) -> dict:
+    """CPU-bound SVJ calibration — runs in thread pool."""
     from cortex.svj import calibrate_svj
 
     m = _get_model(req.token)
@@ -38,33 +40,71 @@ def svj_calibrate(req: SVJCalibrateRequest):
 
     _svj_store[req.token] = {"calibration": cal, "returns": m["returns"]}
 
-    hp = None
-    if cal.get("hawkes_params"):
-        hp = SVJHawkesParams(**cal["hawkes_params"])
+    return {
+        "token": req.token,
+        "kappa": cal["kappa"],
+        "theta": cal["theta"],
+        "sigma": cal["sigma"],
+        "rho": cal["rho"],
+        "lambda_": cal["lambda_"],
+        "mu_j": cal["mu_j"],
+        "sigma_j": cal["sigma_j"],
+        "feller_ratio": cal["feller_ratio"],
+        "feller_satisfied": cal["feller_satisfied"],
+        "log_likelihood": cal.get("log_likelihood"),
+        "aic": cal.get("aic"),
+        "bic": cal.get("bic"),
+        "n_obs": cal["n_obs"],
+        "n_jumps_detected": cal["n_jumps_detected"],
+        "jump_fraction": cal["jump_fraction"],
+        "bns_statistic": cal["bns_statistic"],
+        "bns_pvalue": cal["bns_pvalue"],
+        "optimization_success": cal["optimization_success"],
+        "use_hawkes": cal["use_hawkes"],
+        "hawkes_params": cal.get("hawkes_params"),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
 
+
+@router.post("/svj/calibrate")
+async def svj_calibrate(req: SVJCalibrateRequest, async_mode: bool = Query(False)):
+    from api.tasks import create_task, run_in_background
+
+    if async_mode:
+        task_id = create_task("/svj/calibrate")
+        asyncio.ensure_future(run_in_background(task_id, _svj_calibrate_sync, req))
+        return JSONResponse(content={
+            "task_id": task_id,
+            "status": "pending",
+            "endpoint": "/svj/calibrate",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+
+    result = await asyncio.to_thread(_svj_calibrate_sync, req)
+    hp = SVJHawkesParams(**result["hawkes_params"]) if result.get("hawkes_params") else None
     return SVJCalibrateResponse(
-        token=req.token,
-        kappa=cal["kappa"],
-        theta=cal["theta"],
-        sigma=cal["sigma"],
-        rho=cal["rho"],
-        lambda_=cal["lambda_"],
-        mu_j=cal["mu_j"],
-        sigma_j=cal["sigma_j"],
-        feller_ratio=cal["feller_ratio"],
-        feller_satisfied=cal["feller_satisfied"],
-        log_likelihood=cal.get("log_likelihood"),
-        aic=cal.get("aic"),
-        bic=cal.get("bic"),
-        n_obs=cal["n_obs"],
-        n_jumps_detected=cal["n_jumps_detected"],
-        jump_fraction=cal["jump_fraction"],
-        bns_statistic=cal["bns_statistic"],
-        bns_pvalue=cal["bns_pvalue"],
-        optimization_success=cal["optimization_success"],
-        use_hawkes=cal["use_hawkes"],
+        token=result["token"],
+        kappa=result["kappa"],
+        theta=result["theta"],
+        sigma=result["sigma"],
+        rho=result["rho"],
+        lambda_=result["lambda_"],
+        mu_j=result["mu_j"],
+        sigma_j=result["sigma_j"],
+        feller_ratio=result["feller_ratio"],
+        feller_satisfied=result["feller_satisfied"],
+        log_likelihood=result.get("log_likelihood"),
+        aic=result.get("aic"),
+        bic=result.get("bic"),
+        n_obs=result["n_obs"],
+        n_jumps_detected=result["n_jumps_detected"],
+        jump_fraction=result["jump_fraction"],
+        bns_statistic=result["bns_statistic"],
+        bns_pvalue=result["bns_pvalue"],
+        optimization_success=result["optimization_success"],
+        use_hawkes=result["use_hawkes"],
         hawkes_params=hp,
-        timestamp=datetime.now(timezone.utc),
+        timestamp=result["timestamp"],
     )
 
 

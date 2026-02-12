@@ -1,9 +1,11 @@
 """Rough volatility endpoints: calibrate, forecast, diagnostics, compare-msm."""
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import JSONResponse
 
 from api.models import (
     ErrorResponse,
@@ -22,13 +24,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["rough"])
 
 
-@router.post(
-    "/rough/calibrate",
-    response_model=RoughCalibrateResponse,
-    responses={404: {"model": ErrorResponse}},
-    summary="Calibrate rough volatility model (rBergomi or rHeston)",
-)
-def post_rough_calibrate(req: RoughCalibrateRequest):
+def _rough_calibrate_sync(req: RoughCalibrateRequest) -> dict:
+    """CPU-bound rough vol calibration — runs in thread pool."""
     from cortex.rough_vol import calibrate_rough_bergomi, calibrate_rough_heston
 
     m = _get_model(req.token)
@@ -40,20 +37,52 @@ def post_rough_calibrate(req: RoughCalibrateRequest):
 
     _rough_store[req.token] = cal
 
-    metrics = RoughCalibrationMetrics(**cal["metrics"])
+    return {
+        "token": req.token,
+        "model": cal["model"],
+        "H": cal["H"],
+        "nu": cal.get("nu"),
+        "lambda_": cal.get("lambda_"),
+        "theta": cal.get("theta"),
+        "xi": cal.get("xi"),
+        "V0": cal["V0"],
+        "metrics": cal["metrics"],
+        "method": cal["method"],
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
 
+
+@router.post(
+    "/rough/calibrate",
+    responses={404: {"model": ErrorResponse}},
+    summary="Calibrate rough volatility model (rBergomi or rHeston)",
+)
+async def post_rough_calibrate(req: RoughCalibrateRequest, async_mode: bool = Query(False)):
+    from api.tasks import create_task, run_in_background
+
+    if async_mode:
+        task_id = create_task("/rough/calibrate")
+        asyncio.ensure_future(run_in_background(task_id, _rough_calibrate_sync, req))
+        return JSONResponse(content={
+            "task_id": task_id,
+            "status": "pending",
+            "endpoint": "/rough/calibrate",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+
+    result = await asyncio.to_thread(_rough_calibrate_sync, req)
     return RoughCalibrateResponse(
-        token=req.token,
-        model=cal["model"],
-        H=cal["H"],
-        nu=cal.get("nu"),
-        lambda_=cal.get("lambda_"),
-        theta=cal.get("theta"),
-        xi=cal.get("xi"),
-        V0=cal["V0"],
-        metrics=metrics,
-        method=cal["method"],
-        timestamp=datetime.now(timezone.utc),
+        token=result["token"],
+        model=result["model"],
+        H=result["H"],
+        nu=result.get("nu"),
+        lambda_=result.get("lambda_"),
+        theta=result.get("theta"),
+        xi=result.get("xi"),
+        V0=result["V0"],
+        metrics=RoughCalibrationMetrics(**result["metrics"]),
+        method=result["method"],
+        timestamp=result["timestamp"],
     )
 
 

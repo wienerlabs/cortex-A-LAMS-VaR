@@ -1279,3 +1279,23 @@ class DebateResponse(BaseModel):
     elapsed_ms: float
     original_approved: bool
     decision_changed: bool
+
+
+# --- Async calibration task models ---
+
+class AsyncTaskResponse(BaseModel):
+    task_id: str
+    status: str
+    endpoint: str
+    created_at: str
+
+
+class TaskStatusResponse(BaseModel):
+    task_id: str
+    status: str
+    endpoint: str
+    result: dict | list | None = None
+    error: str | None = None
+    created_at: str
+    started_at: str | None = None
+    completed_at: str | None = None

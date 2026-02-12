@@ -32,12 +32,40 @@ logger = logging.getLogger(__name__)
 def _compute_intensity(
     events: np.ndarray, params: tuple[float, float, float], t_eval: np.ndarray
 ) -> np.ndarray:
-    """Compute Hawkes intensity λ(t) at evaluation points."""
+    """Compute Hawkes intensity λ(t) at evaluation points.
+
+    Uses O((n+m)·log(n+m)) sorted-merge with recursive accumulator
+    instead of O(n·m) nested loop.
+    """
     mu, alpha, beta = params
-    intensity = np.full_like(t_eval, mu, dtype=float)
-    for t_i in events:
-        mask = t_eval > t_i
-        intensity[mask] += alpha * np.exp(-beta * (t_eval[mask] - t_i))
+    n_ev = len(events)
+    n_pt = len(t_eval)
+
+    if n_ev == 0:
+        return np.full(n_pt, mu, dtype=float)
+
+    intensity = np.empty(n_pt, dtype=float)
+
+    # Tag: 0 = event, 1 = eval point
+    tags = np.concatenate([np.zeros(n_ev, dtype=np.int8), np.ones(n_pt, dtype=np.int8)])
+    times = np.concatenate([events, t_eval])
+    order = np.argsort(times, kind="mergesort")
+
+    A = 0.0
+    prev_t = times[order[0]]
+
+    for idx in order:
+        t = times[idx]
+        dt = t - prev_t
+        if dt > 0:
+            A *= np.exp(-beta * dt)
+            prev_t = t
+        if tags[idx] == 0:  # event
+            A += 1.0
+        else:  # eval point
+            orig = idx - n_ev
+            intensity[orig] = mu + alpha * A
+
     return intensity
 
 
@@ -374,8 +402,9 @@ def simulate_hawkes(
     # Upper bound on intensity starts at mu
     lambda_bar = mu
 
+    # O(1) recursive accumulator per candidate (replaces O(n) inner loop)
+    A = 0.0
     while t < T:
-        # Draw next candidate time from exponential with rate lambda_bar
         u = rng.uniform()
         dt = -np.log(u) / lambda_bar
         t += dt
@@ -383,15 +412,12 @@ def simulate_hawkes(
         if t >= T:
             break
 
-        # Compute actual intensity at candidate time
-        lambda_t = mu
-        for t_i in event_times:
-            lambda_t += alpha * np.exp(-beta * (t - t_i))
+        A *= np.exp(-beta * dt)
+        lambda_t = mu + alpha * A
 
-        # Accept/reject
         if rng.uniform() <= lambda_t / lambda_bar:
             event_times.append(t)
-            # Update upper bound: intensity just jumped by alpha
+            A += 1.0
             lambda_bar = lambda_t + alpha
         else:
             lambda_bar = lambda_t
