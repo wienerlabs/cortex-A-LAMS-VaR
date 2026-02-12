@@ -146,7 +146,7 @@ const SECTIONS = [
       fields:[field('tokens','SOL,RAY,JUP','text',{placeholder:'comma-separated: SOL,RAY,JUP or AAPL,MSFT,GOOGL'}),
         field('weights','{"SOL":0.4,"RAY":0.3,"JUP":0.3}','textarea'),
         field('num_states','5','number'), field('method','mle','select',{options:['mle','grid','empirical','hybrid']}),
-        field('period','2y'), field('data_source','solana','select',{options:['solana','yfinance']}),
+        field('period','2y'), field('data_source','yfinance','select',{options:['solana','yfinance']}),
         field('copula_family','','select',{options:['','gaussian','student_t','clayton','gumbel','frank','auto']})]},
     { method:'POST', path:'/portfolio/var', desc:'Portfolio VaR (custom weights)',
       fields:[field('weights','{"AAPL":0.4,"MSFT":0.3,"GOOGL":0.3}','textarea'),
@@ -288,6 +288,102 @@ SECTIONS.forEach(sec => {
 
   app.appendChild(section);
 });
+
+// --- WebSocket Regime Streaming Panel (MSM Core section) ---
+(function buildWsPanel() {
+  const msmSection = document.getElementById('msm');
+  if (!msmSection) return;
+
+  let ws = null;
+  let msgCount = 0;
+
+  const panel = el('details', {className:'endpoint'});
+  panel.setAttribute('open', '');
+  panel.appendChild(el('summary', null,
+    el('span', {className:'method'}, 'WS'),
+    ' /stream/regime',
+  ));
+  panel.appendChild(el('p', {className:'desc'}, 'Live regime streaming via WebSocket (updates every 5s). Requires MSM calibration first.'));
+
+  const wsForm = el('div');
+
+  const tokenLabel = el('label', {for:'ws-token'}, 'token');
+  const tokenInput = el('input', {id:'ws-token', type:'text', value:'AAPL', placeholder:'Ticker symbol'});
+
+  const statusIndicator = el('div', {className:'status', id:'ws-status'}, '● Disconnected');
+
+  const connectBtn = el('button', {type:'button', id:'ws-connect-btn', onClick: toggleWs}, 'Connect ▸');
+
+  const resultBox = el('div', {className:'result', id:'ws-result', style:'display:none'},
+    el('pre', null, ''));
+
+  wsForm.appendChild(tokenLabel);
+  wsForm.appendChild(tokenInput);
+  wsForm.appendChild(connectBtn);
+  wsForm.appendChild(statusIndicator);
+  wsForm.appendChild(resultBox);
+  panel.appendChild(wsForm);
+  msmSection.appendChild(panel);
+
+  function toggleWs() {
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+      ws.close();
+    } else {
+      connectWs();
+    }
+  }
+
+  function connectWs() {
+    const token = tokenInput.value.trim() || 'AAPL';
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const url = `${proto}//${window.location.host}${API}/stream/regime?token=${encodeURIComponent(token)}`;
+
+    statusIndicator.textContent = '● Connecting…';
+    statusIndicator.className = 'status loading';
+    connectBtn.disabled = true;
+    tokenInput.disabled = true;
+    msgCount = 0;
+
+    ws = new WebSocket(url);
+
+    ws.onopen = function() {
+      statusIndicator.textContent = '● Connected';
+      statusIndicator.className = 'status ok';
+      connectBtn.textContent = 'Disconnect ■';
+      connectBtn.disabled = false;
+      resultBox.style.display = 'block';
+      resultBox.className = 'result ok';
+      resultBox.querySelector('pre').textContent = 'Waiting for data…';
+    };
+
+    ws.onmessage = function(event) {
+      msgCount++;
+      try {
+        const data = JSON.parse(event.data);
+        resultBox.querySelector('pre').textContent =
+          `Message #${msgCount} — ${new Date().toLocaleTimeString()}\n` +
+          JSON.stringify(data, null, 2);
+      } catch {
+        resultBox.querySelector('pre').textContent = event.data;
+      }
+    };
+
+    ws.onerror = function() {
+      statusIndicator.textContent = '● Error';
+      statusIndicator.className = 'status err';
+      resultBox.className = 'result err';
+    };
+
+    ws.onclose = function(event) {
+      statusIndicator.textContent = '● Disconnected' + (event.code !== 1000 ? ` (code ${event.code})` : '');
+      statusIndicator.className = 'status' + (event.code !== 1000 ? ' err' : '');
+      connectBtn.textContent = 'Connect ▸';
+      connectBtn.disabled = false;
+      tokenInput.disabled = false;
+      ws = null;
+    };
+  }
+})();
 
 // Resolve path params like {confidence} or {token}
 function resolvePath(pathTemplate, formData) {
