@@ -900,61 +900,6 @@ class SVJDiagnosticsResponse(BaseModel):
     timestamp: datetime
 
 
-# ── Liquidity-Adjusted VaR (LVaR) ──────────────────────────────────
-
-
-class LVaREstimateRequest(BaseModel):
-    token: str = Field(..., description="Token key from _model_store (must be calibrated)")
-    position_value: float = Field(100_000.0, gt=0, description="Position notional in USD")
-    alpha: float = Field(0.05, gt=0.0, lt=1.0, description="VaR tail probability")
-
-
-class LVaREstimateResponse(BaseModel):
-    token: str
-    lvar: float = Field(..., description="Liquidity-adjusted VaR")
-    base_var: float = Field(..., description="Base MSM VaR (before liquidity adjustment)")
-    liquidity_cost: float = Field(..., description="Liquidity cost in USD")
-    liquidity_cost_pct: float = Field(..., description="Liquidity cost as % of position")
-    roll_spread_pct: float = Field(..., description="Roll (1984) estimated spread %")
-    amihud_illiq: float = Field(..., description="Amihud (2002) illiquidity ratio")
-    position_value: float
-    alpha: float
-    timestamp: datetime
-
-
-class RegimeLiquidityItem(BaseModel):
-    regime: int
-    sigma: float
-    spread: float
-    spread_multiplier: float
-    amihud_illiq: Optional[float] = None
-    mean_volume: Optional[float] = None
-    liquidity_score: float
-    n_obs: int
-
-
-class RegimeLiquidityProfileResponse(BaseModel):
-    token: str
-    num_states: int
-    base_spread: float
-    delta: float
-    profiles: list[RegimeLiquidityItem]
-    current_weighted_spread: float
-    current_regime_probs: list[float]
-    timestamp: datetime
-
-
-class MarketImpactResponse(BaseModel):
-    token: str
-    impact_pct: float = Field(..., description="Estimated price impact %")
-    impact_usd: float = Field(..., description="Estimated price impact in USD")
-    participation_rate: float = Field(..., description="Trade size / ADV ratio")
-    sigma_daily: float
-    trade_size_usd: float
-    adv_usd: float
-    timestamp: datetime
-
-
 # ── Guardian (Unified Risk Veto) ─────────────────────────────────────
 
 
