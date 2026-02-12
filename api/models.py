@@ -909,6 +909,8 @@ class GuardianAssessRequest(BaseModel):
     direction: str = Field(..., pattern="^(long|short)$", description="Trade direction")
     urgency: bool = Field(default=False, description="Bypass cache for urgent assessment")
     max_slippage_pct: float = Field(default=1.0, ge=0.0, le=10.0, description="Max acceptable slippage %")
+    strategy: str | None = Field(default=None, description="Trading strategy: lp, arb, perp")
+    run_debate: bool = Field(default=False, description="Run adversarial debate on this trade")
 
 
 class GuardianComponentScore(BaseModel):
@@ -926,6 +928,9 @@ class GuardianAssessResponse(BaseModel):
     confidence: float = Field(..., ge=0, le=1, description="Model agreement level")
     expires_at: str
     component_scores: list[GuardianComponentScore]
+    circuit_breaker: dict | None = None
+    portfolio_limits: dict | None = None
+    debate: dict | None = None
     from_cache: bool = False
 
 
@@ -1026,28 +1031,69 @@ class MarketImpactResponse(BaseModel):
 # ── Oracle (Pyth) models ──
 
 
+class PythFeedAttributes(BaseModel):
+    asset_type: str = ""
+    base: str = ""
+    description: str = ""
+    display_symbol: str = ""
+    generic_symbol: str = ""
+    quote_currency: str = ""
+    symbol: str = ""
+
+
+class PythFeedItem(BaseModel):
+    id: str
+    attributes: PythFeedAttributes
+
+
+class PythFeedListResponse(BaseModel):
+    feeds: list[PythFeedItem]
+    total: int
+    query: str | None = None
+    timestamp: datetime
+
+
 class OraclePriceItem(BaseModel):
-    token: str
     price: float
     confidence: float
     ema_price: float
+    expo: int = 0
     publish_time: int
     feed_id: str
+    symbol: str = ""
+    description: str = ""
     timestamp: float
 
 
 class OraclePricesResponse(BaseModel):
-    prices: dict[str, OraclePriceItem]
+    prices: list[OraclePriceItem]
+    count: int
     source: str = "pyth"
     timestamp: datetime
 
 
+class OracleHistoricalResponse(BaseModel):
+    prices: list[OraclePriceItem]
+    query_timestamp: int
+    count: int
+    timestamp: datetime
+
+
+class OracleStreamStatus(BaseModel):
+    active: bool
+    feed_ids: list[str]
+    events_received: int
+    started_at: float | None
+
+
 class OracleStatusResponse(BaseModel):
-    tracked_tokens: list[str]
-    buffer_depth: int
-    prices_cached: int
-    buffer_sizes: dict[str, int]
     hermes_url: str
+    total_feeds_known: int
+    feed_cache_age_s: float | None
+    prices_cached: int
+    buffers_active: int
+    buffer_depth: int
+    stream: OracleStreamStatus
     timestamp: float
 
 
@@ -1114,3 +1160,122 @@ class MacroIndicatorsResponse(BaseModel):
     btc_dominance: BtcDominanceItem
     risk_level: str
     timestamp: float
+
+
+
+# ── Kelly Criterion models ──
+
+
+class KellyStatsResponse(BaseModel):
+    active: bool
+    n_trades: int = 0
+    win_rate: float | None = None
+    win_loss_ratio: float | None = None
+    kelly_full: float | None = None
+    kelly_fraction: float | None = None
+    fraction_used: float | None = None
+    reason: str | None = None
+
+
+class TradeOutcomeRequest(BaseModel):
+    pnl: float = Field(..., description="Profit/loss of the trade in USD")
+    size: float = Field(..., description="Trade size in USD")
+    token: str = Field("", description="Token symbol")
+
+
+# ── Circuit Breaker models ──
+
+
+class CircuitBreakerItem(BaseModel):
+    name: str
+    state: str
+    fail_count: int
+    threshold: float
+    consecutive_required: int
+    cooldown_seconds: float
+    opened_at: float | None = None
+    cooldown_remaining: float | None = None
+    history_len: int = 0
+
+
+class CircuitBreakersResponse(BaseModel):
+    breakers: list[CircuitBreakerItem]
+    timestamp: float
+
+
+# ── Portfolio Risk models ──
+
+
+class PositionItem(BaseModel):
+    token: str
+    size_usd: float
+    direction: str
+    entry_price: float = 0.0
+    opened_at: float = 0.0
+
+
+class DrawdownResponse(BaseModel):
+    daily_pnl: float
+    weekly_pnl: float
+    daily_drawdown_pct: float
+    weekly_drawdown_pct: float
+    daily_limit_pct: float
+    weekly_limit_pct: float
+    daily_breached: bool
+    weekly_breached: bool
+    portfolio_value: float
+
+
+class CorrelationExposure(BaseModel):
+    group: str | None = None
+    group_tokens: list[str] = Field(default_factory=list)
+    group_exposure_usd: float = 0.0
+    exposure_pct: float = 0.0
+    limit_pct: float = 0.0
+    breached: bool = False
+
+
+class PortfolioLimitsResponse(BaseModel):
+    blocked: bool
+    blockers: list[str]
+    drawdown: DrawdownResponse
+    correlation: CorrelationExposure
+
+
+class PositionsResponse(BaseModel):
+    positions: list[PositionItem]
+    total_exposure_usd: float
+    portfolio_value: float
+    timestamp: float
+
+
+# ── Adversarial Debate models ──
+
+
+class DebateAgentOutput(BaseModel):
+    role: str
+    position: str | None = None
+    decision: str | None = None
+    confidence: float
+    arguments: list[str] = Field(default_factory=list)
+    reasoning: list[str] = Field(default_factory=list)
+    suggested_action: str | None = None
+    trader_weight: float | None = None
+    risk_weight: float | None = None
+
+
+class DebateRound(BaseModel):
+    round: int
+    trader: DebateAgentOutput
+    risk_manager: DebateAgentOutput
+    arbitrator: DebateAgentOutput
+
+
+class DebateResponse(BaseModel):
+    final_decision: str
+    final_confidence: float
+    rounds: list[DebateRound]
+    num_rounds: int
+    elapsed_ms: float
+    original_approved: bool
+    decision_changed: bool
