@@ -20,6 +20,7 @@ COPY --from=builder /install /usr/local
 
 # Copy application code
 COPY api/ ./api/
+COPY frontend/ ./frontend/
 COPY tests/ ./tests/
 COPY MSM-VaR_MODEL.py .
 COPY extreme_value_theory.py .

@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cortex Risk Engine — Test UI</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--font:'Space Grotesk',system-ui,sans-serif;--bg:#fff;--fg:#000;--border:#000;--muted:#666;--success:#0a0;--error:#c00;--radius:4px;--gap:8px}
+@media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+html{font-family:var(--font);font-size:15px;color:var(--fg);background:var(--bg)}
+body{max-width:960px;margin:0 auto;padding:24px 16px}
+h1{font-size:1.6rem;font-weight:700;margin-bottom:8px;letter-spacing:-.02em}
+h2{font-size:1.15rem;font-weight:600;margin:32px 0 12px;padding-bottom:6px;border-bottom:2px solid var(--fg)}
+h3{font-size:.95rem;font-weight:500;margin:16px 0 8px}
+p.desc{font-size:.8rem;color:var(--muted);margin-bottom:12px}
+.section{margin-bottom:32px}
+.endpoint{border:1px solid var(--border);border-radius:var(--radius);padding:12px;margin-bottom:12px}
+.endpoint summary{cursor:pointer;font-weight:600;font-size:.9rem;list-style:none;display:flex;align-items:center;gap:8px}
+.endpoint summary::before{content:'▸';font-size:.75rem;transition:transform .15s}
+.endpoint[open] summary::before{transform:rotate(90deg)}
+.endpoint summary .method{font-size:.7rem;padding:2px 6px;border:1px solid var(--fg);border-radius:2px;font-weight:700;letter-spacing:.04em}
+.endpoint summary .method.post{background:var(--fg);color:var(--bg)}
+label{display:block;font-size:.8rem;font-weight:500;margin:8px 0 2px}
+input,select,textarea{font-family:var(--font);font-size:.85rem;border:1px solid var(--border);border-radius:var(--radius);padding:6px 8px;width:100%;background:var(--bg);color:var(--fg)}
+input:focus-visible,select:focus-visible,textarea:focus-visible,button:focus-visible{outline:2px solid var(--fg);outline-offset:2px}
+textarea{min-height:60px;resize:vertical}
+.row{display:flex;gap:var(--gap);flex-wrap:wrap}
+.row>*{flex:1;min-width:120px}
+button{font-family:var(--font);font-size:.85rem;font-weight:600;padding:8px 16px;border:2px solid var(--fg);border-radius:var(--radius);background:var(--fg);color:var(--bg);cursor:pointer;margin-top:8px;transition:opacity .1s}
+button:hover{opacity:.85}
+button:active{opacity:.7}
+button:disabled{opacity:.4;cursor:not-allowed}
+.result{margin-top:8px;border:1px solid var(--border);border-radius:var(--radius);max-height:400px;overflow:auto}
+.result pre{font-family:'Space Grotesk',monospace;font-size:.78rem;padding:8px;white-space:pre-wrap;word-break:break-all}
+.result.ok{border-color:var(--success)}
+.result.err{border-color:var(--error)}
+.status{font-size:.75rem;margin-top:4px;font-weight:500}
+.status.ok{color:var(--success)}
+.status.err{color:var(--error)}
+.status.loading{color:var(--muted)}
+#health-status{font-size:.8rem;padding:4px 8px;border-radius:var(--radius);display:inline-block;margin-bottom:16px}
+#health-status.ok{border:1px solid var(--success);color:var(--success)}
+#health-status.err{border:1px solid var(--error);color:var(--error)}
+#health-status.loading{border:1px solid var(--muted);color:var(--muted)}
+nav{margin-bottom:24px;display:flex;flex-wrap:wrap;gap:6px}
+nav a{font-size:.75rem;color:var(--fg);text-decoration:none;border:1px solid var(--border);padding:3px 8px;border-radius:var(--radius)}
+nav a:hover{background:var(--fg);color:var(--bg)}
+nav a:focus-visible{outline:2px solid var(--fg);outline-offset:2px}
+</style>
+</head>
+<body>
+
+<h1>Cortex Risk Engine — Test UI</h1>
+<div id="health-status" class="loading" role="status" aria-live="polite">Checking health…</div>
+
+<nav aria-label="Section navigation">
+<a href="#msm">MSM Core</a>
+<a href="#regime">Regime</a>
+<a href="#news">News</a>
+<a href="#compare">Compare</a>
+<a href="#portfolio">Portfolio</a>
+<a href="#evt">EVT</a>
+<a href="#copula">Copula</a>
+<a href="#hawkes">Hawkes</a>
+<a href="#fractal">Fractal</a>
+<a href="#rough">Rough Vol</a>
+<a href="#svj">SVJ</a>
+<a href="#guardian">Guardian</a>
+</nav>
+
+<main id="app"></main>
+
+<script>
+const API = '/api/v1';
+
+function el(tag, attrs, ...children) {
+  const e = document.createElement(tag);
+  if (attrs) Object.entries(attrs).forEach(([k,v]) => {
+    if (k === 'className') e.className = v;
+    else if (k.startsWith('on')) e.addEventListener(k.slice(2).toLowerCase(), v);
+    else e.setAttribute(k, v);
+  });
+  children.flat().forEach(c => {
+    if (typeof c === 'string') e.appendChild(document.createTextNode(c));
+    else if (c) e.appendChild(c);
+  });
+  return e;
+}
+
+function field(name, dflt, type='text', opts={}) {
+  return { name, dflt: dflt ?? '', type, ...opts };
+}
+
+const SECTIONS = [
+  { id:'msm', title:'MSM Core', desc:'Calibrate MSM model and query VaR, volatility, backtest', endpoints:[
+    { method:'POST', path:'/calibrate', desc:'Calibrate MSM model for a token',
+      fields:[
+        field('token','AAPL'), field('start_date','2024-01-01'), field('end_date','2025-01-01'),
+        field('num_states','5','number'), field('method','empirical','select',{options:['mle','grid','empirical','hybrid']}),
+        field('data_source','yfinance','select',{options:['solana','yfinance']}),
+        field('target_var_breach','0.05','number'), field('interval','1D'),
+        field('use_student_t','false','select',{options:['false','true']}), field('nu','5.0','number'),
+      ]},
+    { method:'GET', path:'/regime/current', desc:'Current regime state',
+      fields:[field('token','AAPL')]},
+    { method:'GET', path:'/var/{confidence}', desc:'VaR at confidence level',
+      fields:[field('confidence','95','number'), field('token','AAPL'),
+        field('use_student_t','','select',{options:['','false','true']}), field('nu','','number')]},
+    { method:'GET', path:'/volatility/forecast', desc:'Volatility forecast',
+      fields:[field('token','AAPL')]},
+    { method:'GET', path:'/backtest/summary', desc:'Backtest summary',
+      fields:[field('token','AAPL'), field('alpha','0.05','number')]},
+    { method:'GET', path:'/tail-probs', desc:'Tail probabilities',
+      fields:[field('token','AAPL'), field('alpha','0.05','number'),
+        field('use_student_t','false','select',{options:['false','true']}), field('nu','5.0','number')]},
+  ]},
+  { id:'regime', title:'Regime Analytics', desc:'Durations, history, transitions, statistics', endpoints:[
+    { method:'GET', path:'/regime/durations', fields:[field('token','AAPL')]},
+    { method:'GET', path:'/regime/history', fields:[field('token','AAPL')]},
+    { method:'GET', path:'/regime/transition-alert',
+      fields:[field('token','AAPL'), field('threshold','0.3','number')]},
+    { method:'GET', path:'/regime/statistics', fields:[field('token','AAPL')]},
+  ]},
+  { id:'news', title:'News Intelligence', desc:'News feed, sentiment, market signal', endpoints:[
+    { method:'GET', path:'/news/feed',
+      fields:[field('regime_state','','number'), field('max_items','50','number')]},
+    { method:'GET', path:'/news/sentiment',
+      fields:[field('regime_state','','number'), field('max_items','20','number')]},
+    { method:'GET', path:'/news/signal', fields:[field('regime_state','','number')]},
+  ]},
+  { id:'compare', title:'Model Comparison', desc:'Compare volatility models', endpoints:[
+    { method:'POST', path:'/compare', desc:'Run model comparison',
+      fields:[field('token','AAPL'), field('alpha','0.05','number'),
+        field('models','','text',{placeholder:'e.g. ewma,garch (blank=all)'})]},
+    { method:'GET', path:'/compare/report/{token}', desc:'Comparison report',
+      fields:[field('token','AAPL'), field('alpha','0.05','number')]},
+  ]},
+  { id:'portfolio', title:'Portfolio VaR', desc:'Multi-asset portfolio risk', endpoints:[
+    { method:'POST', path:'/portfolio/calibrate', desc:'Calibrate portfolio',
+      fields:[field('tokens','AAPL,MSFT,GOOGL','text',{placeholder:'comma-separated'}),
+        field('weights','{"AAPL":0.4,"MSFT":0.3,"GOOGL":0.3}','textarea'),
+        field('num_states','5','number'), field('method','mle','select',{options:['mle','grid','empirical','hybrid']}),
+        field('period','2y'), field('data_source','yfinance','select',{options:['yfinance','solana']}),
+        field('copula_family','','select',{options:['','gaussian','student_t','clayton','gumbel','frank','auto']})]},
+    { method:'POST', path:'/portfolio/var', desc:'Portfolio VaR (custom weights)',
+      fields:[field('weights','{"AAPL":0.4,"MSFT":0.3,"GOOGL":0.3}','textarea'),
+        field('alpha','0.05','number')]},
+    { method:'POST', path:'/portfolio/marginal-var', desc:'Marginal VaR decomposition',
+      fields:[field('weights','{"AAPL":0.4,"MSFT":0.3,"GOOGL":0.3}','textarea'),
+        field('alpha','0.05','number')]},
+    { method:'POST', path:'/portfolio/stress-var', desc:'Stressed VaR',
+      fields:[field('weights','{"AAPL":0.4,"MSFT":0.3,"GOOGL":0.3}','textarea'),
+        field('forced_regime','5','number'), field('alpha','0.05','number')]},
+  ]},
+  { id:'evt', title:'Extreme Value Theory', desc:'GPD tail fitting and EVT-VaR', endpoints:[
+    { method:'POST', path:'/evt/calibrate', desc:'Fit GPD',
+      fields:[field('token','AAPL'),
+        field('threshold_method','percentile','select',{options:['percentile','mean_excess','automated']}),
+        field('min_exceedances','30','number')]},
+    { method:'GET', path:'/evt/var/{confidence}', desc:'EVT VaR',
+      fields:[field('confidence','99','number'), field('token','AAPL')]},
+    { method:'GET', path:'/evt/diagnostics', fields:[field('token','AAPL')]},
+  ]},
+  { id:'copula', title:'Copula Portfolio', desc:'Copula-based portfolio VaR', endpoints:[
+    { method:'POST', path:'/portfolio/copula/var', desc:'Copula VaR',
+      fields:[field('weights','{"AAPL":0.4,"MSFT":0.3,"GOOGL":0.3}','textarea'),
+        field('alpha','0.05','number'), field('n_simulations','10000','number')]},
+    { method:'GET', path:'/portfolio/copula/diagnostics', desc:'Copula diagnostics', fields:[]},
+    { method:'POST', path:'/portfolio/copula/compare', desc:'Compare copula families', fields:[]},
+    { method:'GET', path:'/portfolio/copula/regime-var', desc:'Regime-dependent copula VaR',
+      fields:[field('alpha','0.05','number'), field('n_simulations','10000','number')]},
+  ]},
+  { id:'hawkes', title:'Hawkes Process', desc:'Self-exciting crash clustering', endpoints:[
+    { method:'POST', path:'/hawkes/calibrate', desc:'Fit Hawkes process',
+      fields:[field('token','AAPL'), field('threshold_percentile','95','number'),
+        field('use_absolute','true','select',{options:['true','false']})]},
+    { method:'GET', path:'/hawkes/intensity', fields:[field('token','AAPL')]},
+    { method:'GET', path:'/hawkes/clusters', fields:[field('token','AAPL')]},
+    { method:'POST', path:'/hawkes/var', desc:'Hawkes-adjusted VaR',
+      fields:[field('token','AAPL'), field('confidence','95','number'),
+        field('max_multiplier','3.0','number')]},
+    { method:'POST', path:'/hawkes/simulate', desc:'Simulate Hawkes process',
+      fields:[field('token','AAPL'), field('mu','','number'), field('alpha','','number'),
+        field('beta','','number'), field('T','500','number'), field('seed','42','number')]},
+  ]},
+  { id:'fractal', title:'Multifractal Analysis', desc:'Hurst exponent and fractal diagnostics', endpoints:[
+    { method:'GET', path:'/fractal/hurst',
+      fields:[field('token','AAPL'), field('method','rs','select',{options:['rs','dfa']})]},
+    { method:'GET', path:'/fractal/spectrum', fields:[field('token','AAPL')]},
+    { method:'GET', path:'/fractal/regime-hurst', fields:[field('token','AAPL')]},
+    { method:'GET', path:'/fractal/diagnostics', fields:[field('token','AAPL')]},
+  ]},
+  { id:'rough', title:'Rough Volatility', desc:'rBergomi / rHeston models', endpoints:[
+    { method:'POST', path:'/rough/calibrate', desc:'Calibrate rough vol model',
+      fields:[field('token','AAPL'),
+        field('model','rough_bergomi','select',{options:['rough_bergomi','rough_heston']}),
+        field('window','5','number'), field('max_lag','50','number')]},
+    { method:'GET', path:'/rough/forecast',
+      fields:[field('token','AAPL'), field('horizon','10','number'), field('n_paths','500','number')]},
+    { method:'GET', path:'/rough/diagnostics',
+      fields:[field('token','AAPL'), field('window','5','number'), field('max_lag','50','number')]},
+    { method:'GET', path:'/rough/compare-msm', fields:[field('token','AAPL')]},
+  ]},
+  { id:'svj', title:'SVJ Model', desc:'Stochastic Volatility with Jumps', endpoints:[
+    { method:'POST', path:'/svj/calibrate',
+      fields:[field('token','AAPL'),
+        field('use_hawkes','false','select',{options:['false','true']}),
+        field('jump_threshold_multiplier','3.0','number')]},
+    { method:'GET', path:'/svj/var',
+      fields:[field('token','AAPL'), field('alpha','0.05','number'),
+        field('n_simulations','50000','number')]},
+    { method:'GET', path:'/svj/jump-risk', fields:[field('token','AAPL')]},
+    { method:'GET', path:'/svj/diagnostics', fields:[field('token','AAPL')]},
+  ]},
+  { id:'guardian', title:'Guardian Risk Veto', desc:'Unified risk assessment for trading', endpoints:[
+    { method:'POST', path:'/guardian/assess', desc:'Assess trade risk',
+      fields:[field('token','AAPL'), field('trade_size_usd','10000','number'),
+        field('direction','long','select',{options:['long','short']}),
+        field('urgency','false','select',{options:['false','true']}),
+        field('max_slippage_pct','1.0','number')]},
+  ]},
+];
+
+// Build the UI
+const app = document.getElementById('app');
+let eid = 0;
+
+SECTIONS.forEach(sec => {
+  const section = el('section', {className:'section', id:sec.id});
+  section.appendChild(el('h2', null, sec.title));
+  if (sec.desc) section.appendChild(el('p', {className:'desc'}, sec.desc));
+
+  sec.endpoints.forEach(ep => {
+    const uid = `ep-${eid++}`;
+    const details = el('details', {className:'endpoint'});
+    const methodCls = 'method' + (ep.method === 'POST' ? ' post' : '');
+    details.appendChild(el('summary', null,
+      el('span', {className:methodCls}, ep.method),
+      ` ${ep.path}`,
+    ));
+
+    if (ep.desc) details.appendChild(el('p', {className:'desc'}, ep.desc));
+
+    const form = el('form', {id:uid, onSubmit: e => { e.preventDefault(); runEndpoint(uid, ep); }});
+
+    ep.fields.forEach(f => {
+      const id = `${uid}-${f.name}`;
+      const lbl = el('label', {for:id}, f.name);
+      let input;
+      if (f.type === 'select') {
+        input = el('select', {id, name:f.name});
+        (f.options||[]).forEach(o => input.appendChild(el('option', {value:o}, o || '(empty)')));
+        if (f.dflt) input.value = f.dflt;
+      } else if (f.type === 'textarea') {
+        input = el('textarea', {id, name:f.name}, f.dflt);
+      } else {
+        input = el('input', {id, name:f.name, type:'text', value:f.dflt, placeholder:f.placeholder||''});
+      }
+      form.appendChild(lbl);
+      form.appendChild(input);
+    });
+
+    form.appendChild(el('button', {type:'submit'}, 'Run ▸'));
+    const statusEl = el('div', {className:'status', id:`${uid}-status`});
+    const resultEl = el('div', {className:'result', id:`${uid}-result`, style:'display:none'},
+      el('pre', null, ''));
+    form.appendChild(statusEl);
+    form.appendChild(resultEl);
+    details.appendChild(form);
+    section.appendChild(details);
+  });
+
+  app.appendChild(section);
+});
+
+// Resolve path params like {confidence} or {token}
+function resolvePath(pathTemplate, formData) {
+  return pathTemplate.replace(/\{(\w+)\}/g, (_, key) => {
+    const val = formData[key];
+    delete formData[key];
+    return encodeURIComponent(val);
+  });
+}
+
+async function runEndpoint(uid, ep) {
+  const form = document.getElementById(uid);
+  const statusEl = document.getElementById(`${uid}-status`);
+  const resultEl = document.getElementById(`${uid}-result`);
+  const btn = form.querySelector('button');
+
+  const raw = {};
+  ep.fields.forEach(f => {
+    const input = form.querySelector(`[name="${f.name}"]`);
+    const v = input.value.trim();
+    if (v !== '') raw[f.name] = v;
+  });
+
+  statusEl.textContent = 'Loading…';
+  statusEl.className = 'status loading';
+  resultEl.style.display = 'none';
+  btn.disabled = true;
+
+  try {
+    let url, opts;
+    const data = {...raw};
+
+    // Parse special fields
+    ['num_states','threshold_percentile','min_exceedances','forced_regime',
+     'n_simulations','horizon','n_paths','window','max_lag','seed'].forEach(k => {
+      if (data[k] !== undefined) data[k] = parseInt(data[k], 10);
+    });
+    ['alpha','confidence','target_var_breach','nu','threshold','T',
+     'trade_size_usd','max_slippage_pct','max_multiplier','mu',
+     'jump_threshold_multiplier'].forEach(k => {
+      if (data[k] !== undefined) data[k] = parseFloat(data[k]);
+    });
+    ['use_student_t','use_absolute','urgency','use_hawkes'].forEach(k => {
+      if (data[k] !== undefined) data[k] = data[k] === 'true';
+    });
+
+    // Parse JSON fields
+    if (typeof data.weights === 'string') {
+      try { data.weights = JSON.parse(data.weights); } catch {}
+    }
+    if (typeof data.tokens === 'string') {
+      data.tokens = data.tokens.split(',').map(s => s.trim()).filter(Boolean);
+    }
+    if (typeof data.models === 'string' && data.models) {
+      data.models = data.models.split(',').map(s => s.trim()).filter(Boolean);
+    } else {
+      delete data.models;
+    }
+
+    const resolvedPath = resolvePath(ep.path, data);
+
+    if (ep.method === 'GET') {
+      const params = new URLSearchParams();
+      Object.entries(data).forEach(([k,v]) => {
+        if (v !== '' && v !== undefined && v !== null) params.set(k, String(v));
+      });
+      const qs = params.toString();
+      url = `${API}${resolvedPath}${qs ? '?' + qs : ''}`;
+      opts = { method: 'GET' };
+    } else {
+      // POST: some endpoints use query params for weights etc.
+      // Check if path contains 'portfolio/var' or 'portfolio/marginal' or 'portfolio/stress'
+      // or 'portfolio/copula/var' — these use query params for weights
+      const queryWeightPaths = ['/portfolio/var','/portfolio/marginal-var','/portfolio/stress-var','/portfolio/copula/var'];
+      if (queryWeightPaths.some(p => resolvedPath === p)) {
+        const params = new URLSearchParams();
+        Object.entries(data).forEach(([k,v]) => {
+          if (k === 'weights') {
+            Object.entries(v).forEach(([wk,wv]) => params.append(`weights`, `${wk}:${wv}`));
+          } else if (v !== '' && v !== undefined && v !== null) {
+            params.set(k, String(v));
+          }
+        });
+        // These endpoints expect weights as query param with JSON
+        const qp = new URLSearchParams();
+        if (data.alpha !== undefined) qp.set('alpha', data.alpha);
+        if (data.n_simulations !== undefined) qp.set('n_simulations', data.n_simulations);
+        if (data.forced_regime !== undefined) qp.set('forced_regime', data.forced_regime);
+        const qs = qp.toString();
+        url = `${API}${resolvedPath}${qs ? '?' + qs : ''}`;
+        opts = {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify(data.weights),
+        };
+      } else {
+        url = `${API}${resolvedPath}`;
+        opts = {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify(data),
+        };
+      }
+    }
+
+    const t0 = performance.now();
+    const res = await fetch(url, opts);
+    const elapsed = ((performance.now() - t0) / 1000).toFixed(2);
+    const json = await res.json();
+
+    resultEl.style.display = 'block';
+    resultEl.querySelector('pre').textContent = JSON.stringify(json, null, 2);
+
+    if (res.ok) {
+      statusEl.textContent = `✓ ${res.status} — ${elapsed}s`;
+      statusEl.className = 'status ok';
+      resultEl.className = 'result ok';
+    } else {
+      statusEl.textContent = `✗ ${res.status} — ${elapsed}s`;
+      statusEl.className = 'status err';
+      resultEl.className = 'result err';
+    }
+  } catch (err) {
+    statusEl.textContent = `✗ Network error: ${err.message}`;
+    statusEl.className = 'status err';
+    resultEl.style.display = 'block';
+    resultEl.className = 'result err';
+    resultEl.querySelector('pre').textContent = err.stack || err.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// Health check
+async function checkHealth() {
+  const el = document.getElementById('health-status');
+  try {
+    const res = await fetch('/health');
+    const data = await res.json();
+    el.textContent = `● ${data.service} v${data.version} — ${data.status}`;
+    el.className = res.ok ? 'ok' : 'err';
+  } catch {
+    el.textContent = '● Backend unreachable';
+    el.className = 'err';
+  }
+}
+checkHealth();
+setInterval(checkHealth, 15000);
+</script>
+</body>
+</html>
+

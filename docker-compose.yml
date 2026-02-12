@@ -27,6 +27,7 @@ services:
       - "8000:8000"
     volumes:
       - ./api:/app/api
+      - ./frontend:/app/frontend
       - ./MSM-VaR_MODEL.py:/app/MSM-VaR_MODEL.py
       - ./extreme_value_theory.py:/app/extreme_value_theory.py
       - ./hawkes_process.py:/app/hawkes_process.py

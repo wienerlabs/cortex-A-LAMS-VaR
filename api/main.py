@@ -5,6 +5,8 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 # Ensure project root is importable
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -42,10 +44,17 @@ app.add_middleware(
 
 app.include_router(router, prefix="/api/v1", tags=["msm"])
 
+_frontend_dir = Path(__file__).resolve().parent.parent / "frontend"
+
 
 @app.get("/health")
 def health():
     return {"status": "ok", "service": "cortex-risk-engine", "version": "1.1.0"}
+
+
+@app.get("/", include_in_schema=False)
+def serve_ui():
+    return FileResponse(_frontend_dir / "index.html", media_type="text/html")
 
 
 if __name__ == "__main__":
