@@ -101,6 +101,27 @@ button:disabled{opacity:.4;cursor:not-allowed;transform:none}
 /* Spinner */
 @keyframes spin{to{transform:rotate(360deg)}}
 .spinner{display:inline-block;width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .6s linear infinite}
+/* Token Card */
+.token-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-top:8px;box-shadow:var(--shadow)}
+.token-card-header{display:flex;align-items:center;gap:12px;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--border)}
+.token-card-logo{width:48px;height:48px;border-radius:50%;object-fit:cover;background:var(--subtle);border:2px solid var(--border);flex-shrink:0}
+.token-card-logo-fallback{width:48px;height:48px;border-radius:50%;background:var(--accent);color:var(--accent-fg);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:1.1rem;flex-shrink:0}
+.token-card-title{flex:1;min-width:0}
+.token-card-title h3{font-size:1rem;font-weight:700;margin:0;display:flex;align-items:center;gap:6px}
+.token-card-title h3 .ticker{font-size:.75rem;color:var(--muted);font-weight:600;background:var(--subtle);padding:2px 8px;border-radius:10px;border:1px solid var(--border)}
+.token-card-title .addr{font-size:.68rem;color:var(--muted);font-family:monospace;margin-top:2px;cursor:pointer;transition:color .15s}
+.token-card-title .addr:hover{color:var(--accent)}
+.token-card-price{text-align:right;flex-shrink:0}
+.token-card-price .price{font-size:1.2rem;font-weight:700}
+.token-card-price .change{font-size:.78rem;font-weight:600;margin-top:2px}
+.token-card-price .change.up{color:var(--success)}
+.token-card-price .change.down{color:var(--error)}
+.token-card-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px}
+.token-card-stat{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px}
+.token-card-stat .stat-label{font-size:.65rem;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);font-weight:600;margin-bottom:4px}
+.token-card-stat .stat-value{font-size:.85rem;font-weight:600;word-break:break-all}
+.token-card-stat .stat-value.mono{font-family:monospace;font-size:.72rem}
+.token-card-dex{display:inline-block;font-size:.65rem;padding:2px 8px;border-radius:10px;font-weight:600;background:var(--accent);color:var(--accent-fg);margin-top:2px}
 </style>
 </head>
 <body>
@@ -114,6 +135,7 @@ button:disabled{opacity:.4;cursor:not-allowed;transform:none}
 </header>
 
 <nav id="main-nav" aria-label="Section navigation">
+<a href="#tokeninfo">Token Info</a>
 <a href="#msm">MSM Core</a>
 <a href="#regime">Regime</a>
 <a href="#news">News</a>
@@ -159,6 +181,10 @@ function field(name, dflt, type='text', opts={}) {
 }
 
 const SECTIONS = [
+  { id:'tokeninfo', title:'Token Info', badge:'Lookup', desc:'Fetch token metadata — name, price, market cap, holders, and more. Enter a symbol or mint address.', endpoints:[
+    { method:'GET', path:'/token/info/{address}', desc:'Get token metadata card from Birdeye', primary:true,
+      fields:[field('address','SOL','text',{placeholder:'SOL, RAY, JUP, BONK or mint address'})]},
+  ]},
   { id:'msm', title:'MSM Core', badge:'Start Here', desc:'Calibrate MSM model and query VaR, volatility, backtest', endpoints:[
     { method:'POST', path:'/calibrate', desc:'Calibrate MSM model for a token — required before most other endpoints.', primary:true,
       fields:[
@@ -669,6 +695,10 @@ async function runEndpoint(uid, ep) {
       if (ep.path === '/calibrate' && raw.token) {
         addCalibratedToken(raw.token);
       }
+      // Render token card for /token/info/ responses
+      if (ep.path.startsWith('/token/info/') && json.address) {
+        renderTokenCard(resultWrap, json);
+      }
     } else {
       const detail = json.detail || `HTTP ${res.status}`;
       statusEl.textContent = `✗ ${res.status} — ${detail}`;
@@ -684,6 +714,114 @@ async function runEndpoint(uid, ep) {
   } finally {
     btn.disabled = false;
   }
+}
+
+// Token Card renderer
+function renderTokenCard(wrap, d) {
+  const prev = wrap.querySelector('.token-card');
+  if (prev) prev.remove();
+
+  const fmtUsd = (v) => {
+    if (!v || v === 0) return '—';
+    if (v >= 1e9) return '$' + (v / 1e9).toFixed(2) + 'B';
+    if (v >= 1e6) return '$' + (v / 1e6).toFixed(2) + 'M';
+    if (v >= 1e3) return '$' + (v / 1e3).toFixed(1) + 'K';
+    return '$' + v.toFixed(2);
+  };
+  const fmtPrice = (v) => {
+    if (!v || v === 0) return '—';
+    if (v < 0.001) return '$' + v.toExponential(3);
+    if (v < 1) return '$' + v.toFixed(6);
+    return '$' + v.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2});
+  };
+  const fmtNum = (v) => v ? v.toLocaleString() : '—';
+  const truncAddr = (a) => a ? (a.length > 12 ? a.slice(0,6) + '…' + a.slice(-4) : a) : '—';
+  const fmtDate = (v) => {
+    if (!v) return '—';
+    try {
+      const dt = typeof v === 'number' ? new Date(v > 1e12 ? v : v * 1000) : new Date(v);
+      return dt.toLocaleDateString(undefined, {year:'numeric',month:'short',day:'numeric'});
+    } catch { return String(v); }
+  };
+
+  const chg = d.price_change_24h_pct || 0;
+  const chgClass = chg >= 0 ? 'up' : 'down';
+  const chgSign = chg >= 0 ? '+' : '';
+
+  const card = el('div', {className:'token-card', role:'region', 'aria-label':'Token information card'});
+
+  // Header: logo + name + price
+  const header = el('div', {className:'token-card-header'});
+
+  if (d.logo_uri) {
+    const img = el('img', {className:'token-card-logo', src:d.logo_uri, alt:d.name + ' logo', width:'48', height:'48'});
+    img.onerror = function() {
+      const fb = el('div', {className:'token-card-logo-fallback'}, (d.symbol || '?').charAt(0).toUpperCase());
+      this.replaceWith(fb);
+    };
+    header.appendChild(img);
+  } else {
+    header.appendChild(el('div', {className:'token-card-logo-fallback'}, (d.symbol || '?').charAt(0).toUpperCase()));
+  }
+
+  const titleBlock = el('div', {className:'token-card-title'});
+  const h3 = el('h3', null, d.name || 'Unknown');
+  if (d.symbol) h3.appendChild(el('span', {className:'ticker'}, d.symbol));
+  titleBlock.appendChild(h3);
+  const addrEl = el('div', {className:'addr', title:'Click to copy: ' + d.address}, truncAddr(d.address));
+  addrEl.onclick = () => {
+    navigator.clipboard.writeText(d.address).then(() => {
+      addrEl.textContent = '✓ Copied!';
+      setTimeout(() => { addrEl.textContent = truncAddr(d.address); }, 1200);
+    });
+  };
+  titleBlock.appendChild(addrEl);
+  header.appendChild(titleBlock);
+
+  const priceBlock = el('div', {className:'token-card-price'});
+  priceBlock.appendChild(el('div', {className:'price'}, fmtPrice(d.price_usd)));
+  priceBlock.appendChild(el('div', {className:'change ' + chgClass}, chgSign + chg.toFixed(2) + '%'));
+  header.appendChild(priceBlock);
+
+  card.appendChild(header);
+
+  // Stats grid
+  const grid = el('div', {className:'token-card-grid'});
+  const stats = [
+    ['Market Cap', fmtUsd(d.market_cap)],
+    ['24h Volume', fmtUsd(d.volume_24h_usd)],
+    ['Liquidity', fmtUsd(d.liquidity_usd)],
+    ['Holders', fmtNum(d.holder_count)],
+    ['Decimals', d.decimals != null ? String(d.decimals) : '—'],
+    ['Created', fmtDate(d.created_at)],
+  ];
+  if (d.deployer) stats.push(['Deployer', truncAddr(d.deployer), true]);
+  if (d.dex_platform) stats.push(['DEX', d.dex_platform, false, true]);
+
+  stats.forEach(([label, value, isMono, isDex]) => {
+    const stat = el('div', {className:'token-card-stat'});
+    stat.appendChild(el('div', {className:'stat-label'}, label));
+    if (isDex) {
+      stat.appendChild(el('span', {className:'token-card-dex'}, value));
+    } else {
+      const valEl = el('div', {className:'stat-value' + (isMono ? ' mono' : '')}, value);
+      if (isMono && d.deployer) {
+        valEl.title = 'Click to copy: ' + d.deployer;
+        valEl.style.cursor = 'pointer';
+        valEl.onclick = () => {
+          navigator.clipboard.writeText(d.deployer).then(() => {
+            valEl.textContent = '✓ Copied!';
+            setTimeout(() => { valEl.textContent = value; }, 1200);
+          });
+        };
+      }
+      stat.appendChild(valEl);
+    }
+    grid.appendChild(stat);
+  });
+
+  card.appendChild(grid);
+  wrap.insertBefore(card, wrap.firstChild);
 }
 
 // Calibration tracker

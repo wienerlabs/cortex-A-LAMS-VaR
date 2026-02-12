@@ -24,6 +24,7 @@ from api.routes.calibration_tasks import router as calibration_tasks_router
 from api.routes.onchain import router as onchain_router
 from api.routes.tick import router as tick_router
 from api.routes.hawkes_onchain import router as hawkes_onchain_router
+from api.routes.token import router as token_router
 
 router = APIRouter(dependencies=[Depends(verify_api_key)])
 
@@ -48,4 +49,5 @@ router.include_router(calibration_tasks_router)
 router.include_router(onchain_router)
 router.include_router(tick_router)
 router.include_router(hawkes_onchain_router)
+router.include_router(token_router)
 
