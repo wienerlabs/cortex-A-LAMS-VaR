@@ -899,7 +899,7 @@ class GuardianAssessRequest(BaseModel):
 
 
 class GuardianComponentScore(BaseModel):
-    component: str = Field(..., description="Component name: evt, svj, hawkes, regime")
+    component: str = Field(..., description="Component name: evt, svj, hawkes, regime, news")
     score: float = Field(..., ge=0, le=100, description="Risk score 0-100")
     details: dict
 

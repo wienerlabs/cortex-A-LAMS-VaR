@@ -643,6 +643,33 @@ _PORTFOLIO_KEY = "default"
 
 def _load_portfolio_returns(req: PortfolioCalibrateRequest) -> pd.DataFrame:
     """Fetch multi-asset returns and return a DataFrame of log-returns in %."""
+    if req.data_source.value == "solana":
+        from datetime import timedelta
+        from solana_data_adapter import get_token_ohlcv, ohlcv_to_returns
+
+        period = req.period
+        now = datetime.now(timezone.utc)
+        if period.endswith("y"):
+            days = int(period[:-1]) * 365
+        elif period.endswith("mo"):
+            days = int(period[:-2]) * 30
+        else:
+            days = int(period.rstrip("d"))
+        start_date = (now - timedelta(days=days)).strftime("%Y-%m-%d")
+        end_date = now.strftime("%Y-%m-%d")
+
+        frames = {}
+        for ticker in req.tokens:
+            df = get_token_ohlcv(ticker, start_date, end_date, "1D")
+            rets = ohlcv_to_returns(df)
+            if len(rets) < 30:
+                raise HTTPException(400, f"Insufficient data for {ticker}")
+            frames[ticker] = rets.rename(ticker)
+        returns_df = pd.DataFrame(frames).dropna()
+        if len(returns_df) < 30:
+            raise HTTPException(400, f"Only {len(returns_df)} common observations after alignment")
+        return returns_df
+
     import yfinance as yf
 
     frames = {}
@@ -1602,6 +1629,18 @@ def guardian_assess(req: GuardianAssessRequest):
             "Calibrate at least one model first (MSM, EVT, SVJ, or Hawkes).",
         )
 
+    # Fetch news intelligence signal (best-effort, non-blocking)
+    news_data = None
+    try:
+        from news_intelligence import fetch_news_intelligence
+        regime_state = _current_regime_state()
+        news_result = fetch_news_intelligence(
+            regime_state=regime_state, max_items=30, timeout=10.0,
+        )
+        news_data = news_result.get("signal")
+    except Exception:
+        logger.debug("News intelligence unavailable for guardian assessment", exc_info=True)
+
     result = assess_trade(
         token=req.token,
         trade_size_usd=req.trade_size_usd,
@@ -1610,6 +1649,7 @@ def guardian_assess(req: GuardianAssessRequest):
         evt_data=evt_data,
         svj_data=svj_data,
         hawkes_data=hawkes_data,
+        news_data=news_data,
     )
 
     return GuardianAssessResponse(

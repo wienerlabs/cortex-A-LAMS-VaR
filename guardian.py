@@ -1,8 +1,9 @@
 """
 Guardian Integration Layer — Unified risk veto endpoint for Cortex autonomous trading.
 
-Consolidates EVT (30%), SVJ (25%), Hawkes (25%), and Regime (20%) risk assessments
-into a single composite score with circuit breaker logic and position sizing.
+Consolidates EVT (25%), SVJ (20%), Hawkes (20%), Regime (20%), and News (15%)
+risk assessments into a single composite score with circuit breaker logic
+and position sizing.
 """
 from __future__ import annotations
 
@@ -15,7 +16,7 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-WEIGHTS = {"evt": 0.30, "svj": 0.25, "hawkes": 0.25, "regime": 0.20}
+WEIGHTS = {"evt": 0.25, "svj": 0.20, "hawkes": 0.20, "regime": 0.20, "news": 0.15}
 CIRCUIT_BREAKER_THRESHOLD = 90
 CACHE_TTL_SECONDS = 5.0
 DECISION_VALIDITY_SECONDS = 30.0
@@ -121,6 +122,76 @@ def _score_regime(model_data: dict) -> dict:
     }
 
 
+def _score_news(news_signal: dict, direction: str) -> dict:
+    """
+    Score news sentiment risk (0-100) relative to trade direction.
+
+    For LONG trades: bearish news = high risk, bullish = low risk.
+    For SHORT trades: bullish news = high risk, bearish = low risk.
+
+    Factors: sentiment_ewma, strength, confidence, entropy.
+    """
+    ewma = news_signal.get("sentiment_ewma", 0.0)
+    strength = news_signal.get("strength", 0.0)
+    confidence = news_signal.get("confidence", 0.0)
+    entropy = news_signal.get("entropy", 1.585)
+    signal_direction = news_signal.get("direction", "NEUTRAL")
+    n_items = news_signal.get("n_items", 0)
+
+    if n_items == 0:
+        return {
+            "component": "news",
+            "score": round(50.0, 2),
+            "details": {
+                "sentiment_ewma": 0.0,
+                "signal_direction": "NEUTRAL",
+                "strength": 0.0,
+                "confidence": 0.0,
+                "entropy": entropy,
+                "n_items": 0,
+                "direction_conflict": False,
+            },
+        }
+
+    # Determine if news opposes the trade direction
+    is_long = direction.lower() == "long"
+    # effective_sentiment: positive = favorable for trade, negative = against
+    effective_sentiment = ewma if is_long else -ewma
+
+    # Base score: map effective_sentiment from [-1, 1] to [0, 100]
+    # -1 (strongly against) → 100, 0 (neutral) → 50, +1 (strongly for) → 0
+    base_score = 50.0 - effective_sentiment * 50.0
+
+    # Scale by confidence: low confidence → pull toward 50 (uncertain)
+    score = 50.0 + (base_score - 50.0) * confidence
+
+    # Entropy penalty: high entropy (disagreement) → pull toward 50
+    # max entropy for 3 categories = log2(3) ≈ 1.585
+    consensus = max(0.0, 1.0 - entropy / 1.585)
+    score = 50.0 + (score - 50.0) * (0.5 + 0.5 * consensus)
+
+    score = round(min(100.0, max(0.0, score)), 2)
+
+    direction_conflict = (
+        (is_long and signal_direction == "SHORT")
+        or (not is_long and signal_direction == "LONG")
+    )
+
+    return {
+        "component": "news",
+        "score": score,
+        "details": {
+            "sentiment_ewma": round(ewma, 4),
+            "signal_direction": signal_direction,
+            "strength": round(strength, 4),
+            "confidence": round(confidence, 4),
+            "entropy": round(entropy, 4),
+            "n_items": n_items,
+            "direction_conflict": direction_conflict,
+        },
+    }
+
+
 def _recommend_size(
     requested_size: float, risk_score: float, current_regime: int, num_states: int
 ) -> float:
@@ -143,6 +214,7 @@ def assess_trade(
     evt_data: dict | None,
     svj_data: dict | None,
     hawkes_data: dict | None,
+    news_data: dict | None = None,
 ) -> dict:
     """Run all risk components and return composite Guardian assessment."""
     cache_key = f"{token}:{direction}"
@@ -157,7 +229,7 @@ def assess_trade(
     veto_reasons: list[str] = []
     available_weights = 0.0
 
-    # EVT component (30%)
+    # EVT component (25%)
     if evt_data:
         evt_score = _score_evt(evt_data)
         scores.append(evt_score)
@@ -165,7 +237,7 @@ def assess_trade(
         if evt_score["score"] > CIRCUIT_BREAKER_THRESHOLD:
             veto_reasons.append("evt_extreme_tail")
 
-    # SVJ component (25%)
+    # SVJ component (20%)
     if svj_data:
         svj_score = _score_svj(svj_data)
         scores.append(svj_score)
@@ -175,7 +247,7 @@ def assess_trade(
         if svj_score["details"]["jump_share_pct"] > 60:
             veto_reasons.append("svj_high_jump_share")
 
-    # Hawkes component (25%)
+    # Hawkes component (20%)
     if hawkes_data:
         hawkes_score = _score_hawkes(hawkes_data)
         scores.append(hawkes_score)
@@ -196,6 +268,16 @@ def assess_trade(
         num_states = regime_score["details"]["num_states"]
         if regime_score["score"] > CIRCUIT_BREAKER_THRESHOLD:
             veto_reasons.append("regime_extreme_crisis")
+
+    # News component (15%)
+    if news_data:
+        news_score = _score_news(news_data, direction)
+        scores.append(news_score)
+        available_weights += WEIGHTS["news"]
+        if news_score["score"] > CIRCUIT_BREAKER_THRESHOLD:
+            veto_reasons.append("news_extreme_negative")
+        if news_score["details"]["direction_conflict"] and news_score["details"]["strength"] > 0.6:
+            veto_reasons.append("news_strong_direction_conflict")
 
     # Composite score (re-normalize weights to available components)
     if available_weights > 0 and scores:
