@@ -48,6 +48,21 @@ TOKEN_REGISTRY: dict[str, str] = {
     "JITOSOL": "J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn",
 }
 
+# Well-known DEX program IDs (Solana mainnet)
+DEX_PROGRAMS: dict[str, str] = {
+    "raydium_amm_v4": "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8",
+    "raydium_clmm": "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK",
+    "orca_whirlpool": "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc",
+    "meteora_dlmm": "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo",
+}
+
+# Lending/perp protocol program IDs (for liquidation events)
+LENDING_PROGRAMS: dict[str, str] = {
+    "drift": "dRiftyHA39MWEi3m9aunc5MzRF1JYuBsbn6VPcn33UH",
+    "mango_v4": "4MangoMjqJ2firMokCjjGPuH8rk3EyL6zmuDAsgzgz",
+    "marginfi": "MFv2hWf31Z9kbCa1snEPYctwafyhdvnV7FZnsebVacA",
+}
+
 # Drift perp market symbols
 DRIFT_PERP_MARKETS: dict[str, int] = {
     "SOL-PERP": 0,

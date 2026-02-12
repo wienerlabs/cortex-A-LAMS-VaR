@@ -548,3 +548,101 @@ def liquidity_adjusted_var_with_axiom(
     )
     result["spread_source"] = source_used
     return result
+
+
+# ── On-chain enhanced LVaR (Wave 10) ──
+
+
+def fetch_onchain_spread(token_address: str, limit: int = 50) -> dict | None:
+    """Get realized spread from on-chain DEX swap data.
+
+    Returns dict compatible with liquidity_adjusted_var() (spread_pct, spread_vol_pct),
+    or None if on-chain data is unavailable.
+    """
+    try:
+        from cortex.data.onchain_liquidity import (
+            compute_realized_spread,
+            fetch_swap_history,
+        )
+
+        swaps = fetch_swap_history(token_address, limit=limit)
+        if len(swaps) < 3:
+            return None
+
+        result = compute_realized_spread(swaps)
+        if result["realized_spread_pct"] <= 0:
+            return None
+
+        return {
+            "spread_pct": result["realized_spread_pct"],
+            "spread_vol_pct": result["realized_spread_vol_pct"],
+            "n_swaps": result["n_swaps"],
+            "by_dex": result["by_dex"],
+        }
+    except Exception as e:
+        logger.warning("On-chain spread fetch failed: %s", e)
+        return None
+
+
+def liquidity_adjusted_var_with_onchain(
+    var_value: float,
+    token_address: str | None = None,
+    pair_address: str | None = None,
+    prices: np.ndarray | pd.Series | None = None,
+    position_value: float = 1.0,
+    alpha: float = 0.05,
+    holding_period: int = 1,
+) -> dict:
+    """Compute LVaR using on-chain data with Axiom and Roll fallbacks.
+
+    Priority: on-chain realized spread > Axiom > Roll estimator > defaults.
+
+    Args:
+        var_value: Base VaR (negative, e.g. -3.2%).
+        token_address: Solana token mint for on-chain swap data.
+        pair_address: Axiom pair address for live spread data.
+        prices: Price series for Roll estimator fallback.
+        position_value: Position notional in USD.
+        alpha: VaR confidence level.
+        holding_period: Holding period in days.
+    """
+    spread_data = None
+    source_used = "none"
+
+    if token_address:
+        spread_data = fetch_onchain_spread(token_address)
+        if spread_data:
+            source_used = "onchain"
+
+    if spread_data is None and pair_address:
+        spread_data = fetch_axiom_spread(pair_address)
+        if spread_data:
+            source_used = "axiom"
+
+    if spread_data is None and prices is not None:
+        p = np.asarray(prices, dtype=float)
+        if len(p) >= 10:
+            roll = estimate_spread(p, method="roll")
+            spread_data = {
+                "spread_pct": roll["spread_pct"],
+                "spread_vol_pct": roll.get("spread_vol_pct", 0.0),
+            }
+            source_used = "roll"
+
+    if spread_data is None:
+        spread_data = {"spread_pct": 0.5, "spread_vol_pct": 0.15}
+        source_used = "default"
+        logger.warning("No spread data available, using conservative defaults")
+
+    result = liquidity_adjusted_var(
+        var_value=var_value,
+        spread_pct=spread_data["spread_pct"],
+        spread_vol_pct=spread_data.get("spread_vol_pct", 0.0),
+        position_value=position_value,
+        alpha=alpha,
+        holding_period=holding_period,
+    )
+    result["spread_source"] = source_used
+    if "by_dex" in spread_data:
+        result["by_dex"] = spread_data["by_dex"]
+    return result
