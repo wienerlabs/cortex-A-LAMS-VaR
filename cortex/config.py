@@ -141,6 +141,15 @@ AXIOM_WS_RECONNECT_DELAY = int(os.environ.get("AXIOM_WS_RECONNECT_DELAY", "5"))
 AXIOM_NEW_TOKEN_BUFFER = int(os.environ.get("AXIOM_NEW_TOKEN_BUFFER", "100"))
 AXIOM_MIN_LIQUIDITY_SOL = float(os.environ.get("AXIOM_MIN_LIQUIDITY_SOL", "10.0"))
 
+# ── Jupiter Swap API (Trade Execution) ──
+
+JUPITER_API_URL = os.environ.get("JUPITER_API_URL", "https://api.jup.ag/swap/v1")
+JUPITER_API_KEY = os.environ.get("JUPITER_API_KEY", "")
+JUPITER_RPC_URL = os.environ.get("JUPITER_RPC_URL", os.environ.get("SOLANA_RPC_URL", "https://api.mainnet-beta.solana.com"))
+JUPITER_TIMEOUT = float(os.environ.get("JUPITER_TIMEOUT", "30"))
+JUPITER_MAX_RETRIES = int(os.environ.get("JUPITER_MAX_RETRIES", "3"))
+JUPITER_SLIPPAGE_BPS = int(os.environ.get("JUPITER_SLIPPAGE_BPS", "100"))
+
 # ── Execution Layer (Wave 9) ──
 
 EXECUTION_ENABLED = os.environ.get("EXECUTION_ENABLED", "false").lower() == "true"
