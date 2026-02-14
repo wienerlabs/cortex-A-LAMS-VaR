@@ -189,6 +189,12 @@ TICK_MAX_BARS = int(os.environ.get("TICK_MAX_BARS", "10000"))
 EVT_ENGINE = os.environ.get("EVT_ENGINE", "native")   # "native" or "pyextremes"
 FBM_ENGINE = os.environ.get("FBM_ENGINE", "native")   # "native" or "fbm"
 
+# ── Wave 11B: Model Enhancement Engines ──
+
+COPULA_ENGINE = os.environ.get("COPULA_ENGINE", "native")  # "native" or "vine"
+PORTFOLIO_OPT_ENGINE = os.environ.get("PORTFOLIO_OPT_ENGINE", "native")  # "native" or "skfolio"
+CCXT_DEFAULT_EXCHANGE = os.environ.get("CCXT_DEFAULT_EXCHANGE", "binance")
+
 # ── Metrics ──
 
 METRICS_ENABLED = os.environ.get("METRICS_ENABLED", "true").lower() == "true"
@@ -198,6 +204,12 @@ METRICS_ENABLED = os.environ.get("METRICS_ENABLED", "true").lower() == "true"
 REDIS_URL = os.environ.get("REDIS_URL", "")
 CACHE_ENABLED = os.environ.get("CACHE_ENABLED", "true").lower() == "true"
 CACHE_DEFAULT_TTL = int(os.environ.get("CACHE_DEFAULT_TTL", "300"))
+
+# ── Model Persistence (Redis) ──
+
+PERSISTENCE_ENABLED = os.environ.get("PERSISTENCE_ENABLED", "true").lower() == "true"
+PERSISTENCE_REDIS_URL = os.environ.get("PERSISTENCE_REDIS_URL", os.environ.get("REDIS_URL", ""))
+PERSISTENCE_KEY_PREFIX = os.environ.get("PERSISTENCE_KEY_PREFIX", "cortex:store:")
 
 # ── Hawkes Engine ──
 
