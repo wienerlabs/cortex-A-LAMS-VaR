@@ -1,0 +1,45 @@
+# =============================================================================
+# DVC Ignore File
+# =============================================================================
+# Files and directories to ignore when tracking with DVC
+
+# Python cache
+__pycache__
+*.pyc
+*.pyo
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Node modules
+node_modules/
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+
+# Build artifacts
+dist/
+build/
+
+# Test outputs
+.pytest_cache/
+coverage/
+
+# Backup files (not tracked)
+*.backup
+*.bak
+*.old
+
+# Large data files that should be tracked separately
+# training/perps/data/raw/*.csv
+

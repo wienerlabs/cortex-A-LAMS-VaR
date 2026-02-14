@@ -1,0 +1,71 @@
+# Risk Management Parameters
+# Controls position sizing, stop losses, and exposure limits
+
+position:
+  # Maximum position size as percentage of portfolio
+  max_size: 0.15  # 15%
+  
+  # Maximum number of concurrent positions
+  max_open: 3
+  
+  # Minimum liquidity in USD for trading
+  min_liquidity: 100000
+  
+  # Maximum portfolio exposure per strategy
+  max_strategy_exposure: 0.30  # 30%
+
+stop_loss:
+  # Maximum loss per trade
+  per_trade: 0.02  # 2%
+  
+  # Maximum daily loss limit
+  daily_limit: 0.05  # 5%
+  
+  # Stop trading after N consecutive losses
+  consecutive_limit: 3
+  
+  # Weekly drawdown limit
+  weekly_limit: 0.10  # 10%
+
+gas:
+  # Maximum gas price to execute trades
+  max_gwei: 50
+  
+  # Minimum profit after gas costs
+  min_profit_after_gas: 0.003  # 0.3%
+  
+  # Gas buffer multiplier
+  gas_buffer: 1.2
+  
+  # Priority fee (tip) in gwei
+  priority_fee_gwei: 2
+
+slippage:
+  # Default slippage tolerance
+  default: 0.005  # 0.5%
+  
+  # Maximum slippage for large trades
+  max: 0.01  # 1%
+  
+  # Slippage warning threshold
+  warning: 0.008  # 0.8%
+
+execution:
+  # Minimum confidence score to execute
+  min_confidence: 0.65
+  
+  # Timeout for transactions (seconds)
+  tx_timeout: 120
+  
+  # Number of confirmations required
+  confirmations: 1
+  
+  # Retry count for failed transactions
+  max_retries: 2
+
+alerts:
+  # Alert thresholds
+  high_gas_threshold: 80  # gwei
+  low_liquidity_threshold: 50000  # USD
+  high_slippage_threshold: 0.015  # 1.5%
+

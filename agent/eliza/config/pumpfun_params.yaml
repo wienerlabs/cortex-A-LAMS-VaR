@@ -1,0 +1,117 @@
+# =============================================================================
+# PUMPFUN TRADING CONFIGURATION
+# =============================================================================
+# Configuration for PumpFun memecoin trading executor.
+# All thresholds are dynamically loaded and can be updated at runtime.
+# =============================================================================
+
+# Global enable/disable for PumpFun trading
+enabled: false
+
+# =============================================================================
+# POSITION LIMITS
+# =============================================================================
+# Maximum SOL to invest in a single position
+max_position_sol: 0.5
+
+# Maximum number of concurrent PumpFun positions
+max_concurrent_positions: 3
+
+# =============================================================================
+# JITO MEV PROTECTION
+# =============================================================================
+# Enable Jito bundle submission for MEV protection
+use_jito: true
+
+# Jito tip amount in lamports (default: 10000 = 0.00001 SOL)
+jito_tip_lamports: 10000
+
+# =============================================================================
+# RISK THRESHOLDS
+# =============================================================================
+# Tokens failing these checks will be rejected
+risk_thresholds:
+  # Minimum market cap / liquidity in USD
+  min_liquidity_usd: 10000
+  
+  # Minimum 24-hour trading volume in USD
+  min_volume_24h: 5000
+  
+  # Minimum number of token holders
+  min_holders: 50
+  
+  # Minimum token age in hours (reject very new tokens)
+  min_age_hours: 1
+  
+  # Maximum percentage of supply held by creator
+  max_creator_pct: 20
+  
+  # Maximum percentage held by top 10 holders
+  max_top10_pct: 60
+  
+  # Maximum percentage owned by snipers
+  max_sniper_pct: 30
+
+# =============================================================================
+# EXIT STRATEGY
+# =============================================================================
+exit_strategy:
+  # Take profit levels in percentage gain
+  # Partial sells at each level: 25% at first levels, 50% at last
+  take_profit_levels:
+    - 100   # +100% (2x) - sell 25%
+    - 200   # +200% (3x) - sell 25%
+    - 500   # +500% (6x) - sell 50%
+  
+  # Stop loss percentage (negative value, sell 100% if hit)
+  stop_loss_pct: 50
+  
+  # Trailing stop percentage
+  # After +50% profit, activates trailing stop
+  # Sells if price drops this much from highest point
+  trailing_stop_pct: 30
+  
+  # Automatic exit triggers
+  auto_exit_triggers:
+    # Exit if liquidity drops by this percentage
+    liquidity_drop_pct: 50
+    
+    # Exit if top holders dump this percentage
+    top_holder_dump_pct: 20
+
+# =============================================================================
+# SLIPPAGE SETTINGS
+# =============================================================================
+slippage:
+  # Default slippage for buys in basis points
+  default_buy_slippage_bps: 500
+  
+  # Default slippage for sells in basis points
+  default_sell_slippage_bps: 500
+  
+  # Emergency exit slippage (for stop loss and urgent exits)
+  emergency_slippage_bps: 1000
+
+# =============================================================================
+# MONITORING
+# =============================================================================
+monitoring:
+  # Check positions for exit signals every N milliseconds
+  check_interval_ms: 30000
+  
+  # Re-fetch token data for risk recalculation every N milliseconds
+  risk_recheck_interval_ms: 60000
+
+# =============================================================================
+# LOGGING
+# =============================================================================
+logging:
+  # Log all trade attempts
+  log_all_trades: true
+  
+  # Log risk check details
+  log_risk_checks: true
+  
+  # Log exit signals
+  log_exit_signals: true
+

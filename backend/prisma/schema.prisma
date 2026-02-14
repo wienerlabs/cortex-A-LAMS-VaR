@@ -1,0 +1,137 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Vault {
+  id              String   @id @default(cuid())
+  address         String   @unique
+  name            String
+  symbol          String
+  asset           String
+  totalAssets     String   @default("0")
+  totalShares     String   @default("0")
+  sharePrice      String   @default("1000000000000000000")
+  performanceFee  Int      @default(1000)
+  state           String   @default("Active")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  deposits        Deposit[]
+  withdrawals     Withdrawal[]
+  harvests        Harvest[]
+  allocations     StrategyAllocation[]
+  snapshots       VaultSnapshot[]
+}
+
+model Deposit {
+  id          String   @id @default(cuid())
+  vaultId     String
+  vault       Vault    @relation(fields: [vaultId], references: [id])
+  user        String
+  assets      String
+  shares      String
+  txHash      String   @unique
+  blockNumber Int
+  timestamp   DateTime
+  createdAt   DateTime @default(now())
+
+  @@index([vaultId])
+  @@index([user])
+}
+
+model Withdrawal {
+  id          String   @id @default(cuid())
+  vaultId     String
+  vault       Vault    @relation(fields: [vaultId], references: [id])
+  user        String
+  assets      String
+  shares      String
+  txHash      String   @unique
+  blockNumber Int
+  timestamp   DateTime
+  createdAt   DateTime @default(now())
+
+  @@index([vaultId])
+  @@index([user])
+}
+
+model Strategy {
+  id          String   @id @default(cuid())
+  address     String   @unique
+  name        String
+  protocol    String
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  allocations StrategyAllocation[]
+  harvests    Harvest[]
+}
+
+model StrategyAllocation {
+  id          String   @id @default(cuid())
+  vaultId     String
+  vault       Vault    @relation(fields: [vaultId], references: [id])
+  strategyId  String
+  strategy    Strategy @relation(fields: [strategyId], references: [id])
+  amount      String
+  updatedAt   DateTime @updatedAt
+
+  @@unique([vaultId, strategyId])
+}
+
+model Harvest {
+  id          String   @id @default(cuid())
+  vaultId     String
+  vault       Vault    @relation(fields: [vaultId], references: [id])
+  strategyId  String
+  strategy    Strategy @relation(fields: [strategyId], references: [id])
+  profit      String
+  fee         String
+  txHash      String   @unique
+  blockNumber Int
+  timestamp   DateTime
+  createdAt   DateTime @default(now())
+
+  @@index([vaultId])
+}
+
+model VaultSnapshot {
+  id          String   @id @default(cuid())
+  vaultId     String
+  vault       Vault    @relation(fields: [vaultId], references: [id])
+  totalAssets String
+  sharePrice  String
+  apy         Float?
+  timestamp   DateTime
+  createdAt   DateTime @default(now())
+
+  @@index([vaultId, timestamp])
+}
+
+model AgentAction {
+  id          String   @id @default(cuid())
+  vaultId     String
+  actionType  String
+  status      String   @default("pending")
+  payload     Json
+  txHash      String?
+  error       String?
+  createdAt   DateTime @default(now())
+  executedAt  DateTime?
+
+  @@index([vaultId])
+  @@index([status])
+}
+
+model IndexerState {
+  id              String   @id @default("singleton")
+  lastBlockNumber Int      @default(0)
+  lastEventId     String?
+  updatedAt       DateTime @updatedAt
+}

@@ -1,0 +1,13 @@
+[package]
+name = "cortex_staking"
+version = "0.1.0"
+description = "Cortex Token Staking"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "cortex_staking"
+
+[dependencies]
+anchor-lang = { version = "0.28.0", features = ["init-if-needed"] }
+anchor-spl = "0.28.0"

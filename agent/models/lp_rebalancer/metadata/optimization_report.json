@@ -1,0 +1,57 @@
+{
+  "timestamp": "2026-01-06T17:59:26.772468",
+  "goal": "Increase alpha from -0.15% to +2%+",
+  "findings": {
+    "cost_model": {
+      "current_assumption": 0.3,
+      "realistic_cost": 1.5018,
+      "underestimation_pct": 400.6
+    },
+    "best_config": {
+      "threshold": 0.88,
+      "min_profit_pct": 2.0,
+      "cooldown_hours": 24,
+      "alpha_pct": 9.622166787099209,
+      "num_rebalances": 15,
+      "win_rate": 1.0
+    }
+  },
+  "recommendations": [
+    {
+      "priority": 1,
+      "action": "Update cost model to realistic values",
+      "expected_impact": "+1.2% more accurate P&L",
+      "effort": "Low"
+    },
+    {
+      "priority": 2,
+      "action": "Use threshold >= 0.92 with min_profit >= 3%",
+      "expected_impact": "Reduce false positives, improve win rate",
+      "effort": "Low"
+    },
+    {
+      "priority": 3,
+      "action": "Add order book depth and spread features",
+      "expected_impact": "Better slippage prediction, +0.5-1% alpha",
+      "effort": "Medium"
+    },
+    {
+      "priority": 4,
+      "action": "Increase cooldown to 48h in volatile markets",
+      "expected_impact": "Reduce overtrading costs",
+      "effort": "Low"
+    },
+    {
+      "priority": 5,
+      "action": "Collect 60+ days of data and retrain",
+      "expected_impact": "More robust model, +0.3-0.5% alpha",
+      "effort": "Medium"
+    },
+    {
+      "priority": 6,
+      "action": "Remove low-value stablecoin features",
+      "expected_impact": "Reduce overfitting, cleaner model",
+      "effort": "Low"
+    }
+  ]
+}

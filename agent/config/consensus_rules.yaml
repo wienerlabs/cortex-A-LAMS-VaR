@@ -1,0 +1,99 @@
+# Consensus Voting Rules Configuration
+# 
+# Configures multi-agent voting behavior for trading decisions.
+
+voting:
+  # Minimum agreement percentage required for consensus (0-100)
+  min_agreement_pct: 70
+  
+  # Weighted voting based on agent performance
+  weighted_voting: true
+  
+  # Number of days to look back for performance calculation
+  performance_lookback_days: 30
+
+  # Tie breaking method: 'weighted_confidence', 'abstain', 'hold'
+  tie_breaking:
+    method: 'weighted_confidence'
+
+  # Abstention rules
+  abstention:
+    allowed: true
+    max_abstentions_pct: 30
+
+# Unanimous vote requirements
+unanimous_required:
+  # Require unanimous vote for positions >= this % of portfolio
+  large_position:
+    enabled: true
+    threshold_pct: 20
+  
+  # Always require unanimous vote for perpetuals trades
+  perps_trades: true
+
+# Research debate configuration
+research_debate:
+  # Trigger debate for trades above this USD value
+  required_above_usd: 1000
+  
+  # Confidence thresholds for recommendations
+  thresholds:
+    strong_buy: 0.75
+    strong_sell: 0.75
+    hold_zone_width: 0.15
+    min_confidence_for_action: 0.5
+
+# Performance-based weighting
+performance_weights:
+  # Minimum trades required before performance affects weight
+  min_trades: 5
+  
+  # Weight range (1.0 is neutral)
+  base_weight: 1.0
+  min_weight: 0.5
+  max_weight: 2.0
+  
+  # Time decay - older trades count less
+  decay_factor: 0.95
+
+# Agent configuration
+agents:
+  analysts:
+    - id: 'fundamental-analyst'
+      type: analyst
+      default_weight: 1.0
+    - id: 'speculation-analyst'
+      type: analyst
+      default_weight: 1.0
+    - id: 'news-analyst'
+      type: analyst
+      default_weight: 1.0
+    - id: 'technical-analyst'
+      type: analyst
+      default_weight: 0.8
+  
+  researchers:
+    - id: 'bullish-researcher'
+      type: researcher
+      default_weight: 1.0
+    - id: 'bearish-researcher'
+      type: researcher
+      default_weight: 1.0
+
+# Logging configuration
+logging:
+  # Log all individual votes
+  log_votes: true
+  
+  # Log agreement percentage
+  log_agreement: true
+  
+  # Log dissenting opinions
+  log_dissenters: true
+  
+  # Log research debates
+  log_debates: true
+  
+  # Log performance weight updates
+  log_weight_updates: true
+

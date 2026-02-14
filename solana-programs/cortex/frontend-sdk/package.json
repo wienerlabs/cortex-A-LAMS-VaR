@@ -1,0 +1,29 @@
+{
+  "name": "@cortex/sdk",
+  "version": "1.0.0",
+  "description": "Cortex Token Ecosystem SDK for Frontend Integration",
+  "main": "index.ts",
+  "types": "index.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "echo \"No tests yet\""
+  },
+  "keywords": [
+    "solana",
+    "cortex",
+    "token",
+    "vesting",
+    "private-sale"
+  ],
+  "author": "Cortex Team",
+  "license": "MIT",
+  "peerDependencies": {
+    "@coral-xyz/anchor": "^0.31.0",
+    "@solana/web3.js": "^1.95.8",
+    "@solana/spl-token": "^0.4.9"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  }
+}
+

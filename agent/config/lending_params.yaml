@@ -1,0 +1,380 @@
+# Cortex Lending Strategy Parameters
+# All parameters derived from risk analysis and strategy document
+# Last updated: 2026-01-19
+
+# =============================================================================
+# PROTOCOL SELECTION
+# =============================================================================
+protocol_selection:
+  # Approved protocols (whitelisted)
+  approved_protocols:
+    - marginfi
+    - kamino
+    - solend
+  
+  # Protocol requirements
+  min_protocol_age_months: 6
+  min_protocol_tvl_usd: 50_000_000  # $50M minimum TVL
+  audit_required: true
+  max_utilization_rate: 0.90  # 90% max utilization
+  
+  # Protocol preference order (when APY is similar)
+  preference_order:
+    - marginfi   # Largest, most liquid
+    - kamino     # Strong security, active development
+    - solend     # Proven track record
+
+# =============================================================================
+# APY-BASED SWITCHING LOGIC
+# =============================================================================
+apy_logic:
+  # Switching thresholds
+  min_apy_difference_to_switch: 0.02  # 2% minimum difference
+  min_time_between_switches_hours: 12  # 12 hours minimum
+  gas_breakeven_threshold: 0.005  # 0.5% profit after gas required
+  apy_tolerance_for_equal: 0.003  # 0.3% tolerance (use preference order)
+  
+  # APY limits
+  max_acceptable_apy: 0.50  # 50% annual (suspicious if higher)
+  min_acceptable_apy: 0.02  # 2% annual (not worth gas below this)
+  
+  # APY freshness
+  max_apy_data_age_seconds: 300  # 5 minutes max staleness
+  action_on_stale_data: "skip_rebalance"
+  
+  # Rate manipulation filter
+  max_apy_spike_percent: 0.50  # 50% spike in 1 hour is suspicious
+  cooldown_after_spike_hours: 6  # Wait 6 hours after spike
+  
+  # Platform fee
+  platform_fee_percent: 0.10  # 10% of yield goes to Cortex
+
+# =============================================================================
+# HEALTH FACTOR MANAGEMENT
+# =============================================================================
+health_factor:
+  # Target and thresholds
+  target: 2.5  # Optimal health factor
+  minimum: 2.0  # Minimum acceptable (50% buffer before liquidation)
+  warning_threshold: 1.8  # Reduce leverage by 25%
+  danger_threshold: 1.5  # Reduce leverage by 50%, alert critical
+  emergency_threshold: 1.3  # Exit position immediately
+  
+  # Monitoring
+  check_interval_seconds: 300  # Check every 5 minutes
+  alert_delay_seconds: 0  # Immediate alerts (time-sensitive)
+  
+  # Auto-deleverage actions
+  auto_deleverage_actions:
+    - health_factor: 1.8
+      action: "reduce_leverage"
+      reduction_percent: 0.25  # Reduce by 25%
+      alert_level: "warning"
+    - health_factor: 1.5
+      action: "reduce_leverage"
+      reduction_percent: 0.50  # Reduce by 50%
+      alert_level: "critical"
+    - health_factor: 1.3
+      action: "emergency_exit"
+      reduction_percent: 1.0  # Exit completely
+      alert_level: "emergency"
+
+# =============================================================================
+# LEVERAGE LIMITS
+# =============================================================================
+leverage:
+  default: 1.0  # No leverage by default
+  maximum: 1.5  # 1.5x maximum (conservative for lending)
+  min_health_factor_for_leverage: 2.5  # Only leverage if HF > 2.5
+  
+  # Borrow APY constraints
+  max_borrow_apy: 0.15  # 15% max borrow rate
+  supply_borrow_spread_min: 0.05  # Supply APY must be 5% > Borrow APY
+
+# =============================================================================
+# POSITION AND ALLOCATION LIMITS
+# =============================================================================
+position_limits:
+  # Per-protocol limits
+  max_per_protocol_percent: 0.50  # 50% max in single protocol
+  
+  # Per-asset limits
+  max_per_asset_percent: 0.60  # 60% max in single asset
+  
+  # Position size limits
+  min_position_usd: 10  # $10 minimum
+  max_position_usd: 100_000  # $100k maximum
+  
+  # Asset tier allocation
+  tier_1_max_percent: 0.80  # SOL, USDC: 80% max
+  tier_2_max_percent: 0.15  # JitoSOL, mSOL: 15% max
+  tier_3_max_percent: 0.05  # Other: 5% max
+  
+  # Asset tier definitions
+  asset_tiers:
+    tier_1:
+      - SOL
+      - USDC
+    tier_2:
+      - JitoSOL
+      - mSOL
+      - USDT
+    tier_3:
+      - BONK
+      - JUP
+      - PYTH
+
+# =============================================================================
+# REBALANCING LOGIC
+# =============================================================================
+rebalancing:
+  # Time constraints
+  min_hold_time_hours: 24  # 24 hours minimum hold
+  max_rebalance_frequency_hours: 6  # Max once per 6 hours
+  max_hold_time_hours: null  # No maximum (can hold indefinitely)
+  
+  # Rebalancing triggers
+  triggers:
+    apy_drift_threshold: 0.015  # 1.5% APY drop from entry
+    better_opportunity_threshold: 0.02  # 2% higher APY elsewhere
+    utilization_warning: 0.85  # 85% utilization warning
+    utilization_exit: 0.90  # 90% utilization exit
+    time_based_check_hours: 24  # Check every 24 hours
+
+# =============================================================================
+# PROTOCOL HEALTH MONITORING
+# =============================================================================
+protocol_health:
+  # TVL monitoring
+  tvl_drop_warning_threshold: 0.15  # 15% drop in 24h = warning
+  tvl_drop_exit_threshold: 0.30  # 30% drop in 24h = exit
+  tvl_drop_1h_exit_threshold: 0.20  # 20% drop in 1h = exit
+  
+  # Supply cap handling
+  min_available_capacity_percent: 0.10  # 10% cap headroom required
+  action_on_cap_reached: "skip_protocol"
+  
+  # Monitoring frequency
+  health_check_interval_seconds: 600  # Check every 10 minutes
+
+# =============================================================================
+# REWARD TOKEN HANDLING
+# =============================================================================
+reward_tokens:
+  auto_compound_enabled: true
+  min_reward_to_compound_usd: 10  # $10 minimum to compound
+  compound_frequency_hours: 24  # Compound daily
+  
+  # Reward token strategy
+  reward_strategy: "sell_to_stable"  # Options: sell_to_stable, sell_to_sol, hold
+  min_reward_to_sell_usd: 50  # $50 minimum to sell
+  
+  # Supported reward tokens
+  supported_tokens:
+    - MNDE  # MarginFi
+    - KMNO  # Kamino
+    - SLND  # Solend
+
+# =============================================================================
+# EMERGENCY EXIT CONDITIONS
+# =============================================================================
+emergency_exit:
+  # Immediate exit triggers
+  triggers:
+    - condition: "health_factor_below"
+      threshold: 1.5
+      action: "immediate_full_exit"
+    - condition: "protocol_exploit_detected"
+      action: "immediate_full_exit"
+    - condition: "utilization_above"
+      threshold: 0.95
+      action: "immediate_full_exit"
+    - condition: "oracle_failure"
+      action: "immediate_full_exit"
+    - condition: "smart_contract_pause"
+      action: "immediate_full_exit"
+
+  # Emergency execution parameters
+  max_slippage_percent: 0.03  # Accept up to 3% slippage in emergency
+  priority_fee_multiplier: 5.0  # 5x normal priority fee
+  emergency_gas_reserve_sol: 0.5  # Always keep 0.5 SOL for emergencies
+
+  # Oracle staleness
+  max_oracle_staleness_seconds: 60  # 60 seconds max
+  action_on_stale_oracle: "skip_rebalance"
+
+# =============================================================================
+# DRAWDOWN LIMITS
+# =============================================================================
+drawdown_limits:
+  # Time-based drawdown limits
+  daily_max_percent: 0.03  # 3% daily max drawdown
+  weekly_max_percent: 0.05  # 5% weekly max drawdown
+  monthly_max_percent: 0.08  # 8% monthly max drawdown
+
+  # Actions on drawdown breach
+  action_on_daily_breach: "pause_new_positions"
+  action_on_weekly_breach: "reduce_exposure_50_percent"
+  action_on_monthly_breach: "exit_all_positions"
+
+  # Drawdown calculation
+  calculation_method: "high_water_mark"
+  reset_period_days: 30  # Reset high water mark monthly
+
+# =============================================================================
+# CONFIDENCE SCORING
+# =============================================================================
+confidence_scoring:
+  # Minimum confidence to enter
+  min_confidence_to_enter: 0.60  # 60% minimum
+  full_position_confidence: 0.80  # 80% for full position
+
+  # Confidence components and weights
+  components:
+    protocol_safety:
+      weight: 0.30
+      scoring:
+        tier_1: 1.0  # MarginFi
+        tier_2: 0.9  # Kamino
+        tier_3: 0.8  # Solend
+
+    apy_sustainability:
+      weight: 0.25
+      scoring_method: "compare_to_30d_average"
+      # Near average = 1.0, 2x average = 0.5
+
+    utilization_health:
+      weight: 0.20
+      scoring:
+        below_70_percent: 1.0
+        70_to_80_percent: 0.8
+        80_to_90_percent: 0.5
+        above_90_percent: 0.2
+
+    liquidity_depth:
+      weight: 0.15
+      scoring_method: "tvl_based"
+      # >$100M = 1.0, $50-100M = 0.7, <$50M = 0.4
+
+    asset_quality:
+      weight: 0.10
+      scoring:
+        tier_1: 1.0
+        tier_2: 0.7
+        tier_3: 0.4
+
+# =============================================================================
+# CORRELATION AND DIVERSIFICATION
+# =============================================================================
+diversification:
+  # Correlation limits
+  max_correlation_between_positions: 0.70  # 70% max correlation
+
+  # Concentration limits
+  max_stablecoin_exposure_percent: 0.80  # 80% max in stablecoins
+  max_sol_exposure_percent: 0.60  # 60% max in SOL
+  overall_sol_limit_percent: 0.60  # 60% overall SOL limit
+
+# =============================================================================
+# GAS AND EXECUTION PARAMETERS
+# =============================================================================
+gas_execution:
+  # Gas estimation
+  base_tx_fee_lamports: 5000  # 5000 lamports base fee
+  priority_fee_lamports: 50000  # 50000 lamports priority fee
+  max_priority_fee_lamports: 500000  # 0.0005 SOL max priority
+
+  # Execution parameters
+  default_slippage_bps: 300  # 3% default slippage (increased for mainnet testing)
+  max_slippage_bps: 300  # 3% max slippage (increased for mainnet testing)
+
+  # Gas profitability calculation
+  expected_transactions_per_year: 24  # Bi-weekly rebalancing
+  gas_cost_calculation_method: "annualized"
+
+# =============================================================================
+# ML MODEL PARAMETERS
+# =============================================================================
+ml_model:
+  # XGBoost parameters for lending strategy
+  xgboost_params:
+    n_estimators: 200
+    max_depth: 8
+    learning_rate: 0.03
+    subsample: 0.7
+    colsample_bytree: 0.9
+    gamma: 0.15
+    reg_alpha: 0.2
+    reg_lambda: 1.5
+    objective: "binary:logistic"  # Binary classification: LEND or NO_LEND
+    eval_metric: ["auc", "logloss"]
+    tree_method: "hist"
+    random_state: 42
+
+  # Training configuration
+  training:
+    train_size: 0.70
+    validation_size: 0.15
+    test_size: 0.15
+    split_method: "time_based"
+    cv_folds: 5
+    cv_strategy: "TimeSeriesSplit"
+    early_stopping_rounds: 30
+    verbose_eval: 10
+
+  # Inference thresholds
+  inference:
+    min_probability_to_lend: 0.65  # 65% confidence minimum
+    min_probability_for_leverage: 0.80  # 80% confidence for leverage
+    model_update_frequency_days: 7  # Retrain weekly
+
+# =============================================================================
+# FEATURE ENGINEERING PARAMETERS
+# =============================================================================
+feature_engineering:
+  # APY features
+  apy_rolling_windows: [7, 14, 30]  # Days
+  apy_volatility_window: 30  # Days
+
+  # Utilization features
+  utilization_rolling_windows: [1, 7, 14]  # Days
+  utilization_spike_threshold: 0.10  # 10% spike
+
+  # TVL features
+  tvl_rolling_windows: [7, 14, 30]  # Days
+  tvl_change_threshold: 0.15  # 15% change
+
+  # Health factor features
+  health_factor_history_hours: 168  # 7 days
+  health_factor_volatility_window: 24  # Hours
+
+  # Protocol comparison features
+  protocol_comparison_enabled: true
+  cross_protocol_features: true
+
+# =============================================================================
+# DATA COLLECTION PARAMETERS
+# =============================================================================
+data_collection:
+  # Collection frequency
+  snapshot_interval_hours: 1  # Hourly snapshots
+  historical_data_days: 90  # 90 days of historical data
+
+  # Data sources
+  protocols:
+    marginfi:
+      api_endpoint: "https://api.marginfi.com"
+      enabled: true
+    kamino:
+      api_endpoint: "https://api.kamino.finance"
+      enabled: true
+    solend:
+      api_endpoint: "https://api.solend.fi"
+      enabled: true
+
+  # Data validation
+  min_data_points_for_training: 1000  # Minimum 1000 snapshots
+  data_quality_checks_enabled: true
+  outlier_detection_enabled: true
+  outlier_threshold_std: 3.0  # 3 standard deviations
+

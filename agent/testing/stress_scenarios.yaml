@@ -1,0 +1,168 @@
+# =============================================================================
+# STRESS TEST SCENARIOS
+# =============================================================================
+# Defines extreme market conditions for testing system resilience.
+# All values are based on historical events and realistic worst-case scenarios.
+#
+# Expected System Behaviors:
+# - Circuit breakers should trigger at appropriate thresholds
+# - Trades should halt when conditions are dangerous
+# - Position sizing should reduce in high-risk scenarios
+# - Guardian should block high-slippage trades
+# =============================================================================
+
+scenarios:
+  # ---------------------------------------------------------------------------
+  # FLASH CRASH SCENARIO
+  # Based on: May 2021 BTC flash crash, March 2020 COVID crash
+  # ---------------------------------------------------------------------------
+  flash_crash:
+    name: "Flash Crash"
+    description: "Rapid price drop with partial recovery"
+    severity: "critical"
+    
+    # Price dynamics
+    price_drop_pct: 25          # 25% drop
+    drop_duration_seconds: 60   # Happens in 1 minute
+    recovery_pct: 15            # Recovers 15% of the drop
+    recovery_duration_seconds: 300  # Recovery over 5 minutes
+    
+    # Market impact
+    liquidity_drain_pct: 80     # 80% of liquidity disappears
+    bid_ask_spread_multiplier: 5  # Spread widens 5x
+    slippage_multiplier: 10     # Slippage increases 10x
+    
+    # Expected system response
+    expected_response:
+      circuit_breaker_triggered: true
+      circuit_breaker_state: "PAUSED"  # 5% daily drawdown
+      trades_halted: true
+      new_positions_blocked: true
+      max_acceptable_drawdown_pct: 5.0
+      guardian_blocks_trades: true
+      
+  # ---------------------------------------------------------------------------
+  # BLACK SWAN EVENT
+  # Based on: LUNA collapse, FTX collapse
+  # ---------------------------------------------------------------------------
+  black_swan:
+    name: "Black Swan Event"
+    description: "Extreme multi-sigma move with cascading effects"
+    severity: "emergency"
+    
+    # Price dynamics
+    sigma_move: 5               # 5-sigma event
+    price_change_pct: -40       # 40% drop
+    duration_hours: 24          # Over 24 hours
+    
+    # Cascade effects
+    cascade_effect: true
+    correlated_assets_drop_pct: 30  # Other assets drop 30%
+    protocol_failures: 1        # 1 protocol may fail
+    
+    # Market impact
+    liquidity_drain_pct: 90     # 90% liquidity gone
+    oracle_staleness_seconds: 120  # Oracles lag 2 minutes
+    
+    # Expected system response
+    expected_response:
+      circuit_breaker_triggered: true
+      circuit_breaker_state: "LOCKDOWN"  # 15% monthly drawdown
+      trades_halted: true
+      system_lockdown: true
+      manual_intervention_required: true
+      positions_evaluated_for_emergency_close: true
+      max_acceptable_drawdown_pct: 15.0
+      
+  # ---------------------------------------------------------------------------
+  # LIQUIDITY CRISIS
+  # Based on: March 2020 liquidity crunch, bank runs
+  # ---------------------------------------------------------------------------
+  liquidity_crisis:
+    name: "Liquidity Crisis"
+    description: "Severe liquidity shortage across markets"
+    severity: "critical"
+    
+    # Liquidity dynamics
+    available_liquidity_pct: 10   # Only 10% of normal liquidity
+    bid_ask_multiplier: 10        # Spread widens 10x
+    slippage_multiplier: 20       # Slippage increases 20x
+    
+    # Order book impact
+    order_book_depth_pct: 5       # Only 5% of normal depth
+    market_order_rejection_rate: 50  # 50% of market orders fail
+    
+    # Expected system response
+    expected_response:
+      guardian_blocks_high_slippage: true
+      max_slippage_threshold_pct: 5.0
+      position_size_reduction_pct: 50
+      high_liquidity_assets_only: true
+      trades_halted: false  # Can still trade with limits
+      
+  # ---------------------------------------------------------------------------
+  # MEV ATTACK
+  # Based on: Common sandwich attacks on DEXs
+  # ---------------------------------------------------------------------------
+  mev_attack:
+    name: "MEV Sandwich Attack"
+    description: "Front-running and back-running attack on trades"
+    severity: "high"
+    
+    # Attack parameters
+    front_run_pct: 2            # 2% front-run price impact
+    back_run_pct: 2             # 2% back-run price impact
+    victim_slippage_pct: 5      # Victim experiences 5% slippage
+    attack_frequency: 0.3       # 30% of trades targeted
+    
+    # Expected system response
+    expected_response:
+      jito_bundles_protect: true
+      slippage_detection_catches_attack: true
+      trade_reverted_if_slippage_exceeded: true
+      max_acceptable_slippage_pct: 3.0
+      
+  # ---------------------------------------------------------------------------
+  # NETWORK CONGESTION
+  # Based on: Solana congestion events, Ethereum gas spikes
+  # ---------------------------------------------------------------------------
+  network_congestion:
+    name: "Network Congestion"
+    description: "Severe network congestion with high fees and delays"
+    severity: "high"
+    
+    # Network conditions
+    gas_price_multiplier: 50    # Gas 50x normal
+    confirmation_delay_seconds: 300  # 5 minute delays
+    tx_failure_rate_pct: 30     # 30% of transactions fail
+    
+    # RPC issues
+    rpc_timeout_rate_pct: 20    # 20% of RPC calls timeout
+    block_production_delay_seconds: 10  # Blocks delayed
+    
+    # Expected system response
+    expected_response:
+      gas_price_limiter_active: true
+      max_gas_sol: 0.01         # Max 0.01 SOL for gas
+      timeout_handling_seconds: 120
+      retry_with_backoff: true
+      max_retries: 3
+      trades_halted_if_gas_exceeded: true
+
+# =============================================================================
+# COMBINED SCENARIOS (Multiple stress factors)
+# =============================================================================
+combined_scenarios:
+  perfect_storm:
+    name: "Perfect Storm"
+    description: "Flash crash + liquidity crisis + network congestion"
+    severity: "emergency"
+    components:
+      - flash_crash
+      - liquidity_crisis
+      - network_congestion
+    expected_response:
+      circuit_breaker_state: "LOCKDOWN"
+      all_trading_halted: true
+      emergency_exit_only: true
+

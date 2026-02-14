@@ -1,0 +1,116 @@
+# =============================================================================
+# GUARDIAN VALIDATOR CONFIGURATION
+# =============================================================================
+# Pre-execution transaction security layer configuration.
+# All thresholds are dynamically loaded and can be updated at runtime.
+# =============================================================================
+
+# Global enable/disable for Guardian validation
+enabled: true
+
+# =============================================================================
+# SLIPPAGE LIMITS
+# =============================================================================
+# Slippage tolerance in percent (not basis points)
+min_slippage_percent: 0.1    # 0.1% minimum (10 bps)
+max_slippage_percent: 5.0    # 5.0% maximum (500 bps)
+
+# =============================================================================
+# POSITION SIZE LIMITS
+# =============================================================================
+# Position size limits in USD
+min_position_usd: 10         # $10 minimum position
+max_position_usd: 10000      # $10,000 maximum position
+
+# =============================================================================
+# GAS LIMITS
+# =============================================================================
+# Maximum gas fees allowed
+max_gas_sol: 0.01            # 0.01 SOL maximum gas cost
+max_priority_fee_lamports: 500000  # 0.0005 SOL max priority fee
+
+# =============================================================================
+# LIQUIDITY REQUIREMENTS
+# =============================================================================
+# Minimum liquidity required for trading
+min_liquidity_usd: 50000     # $50,000 minimum pool liquidity
+
+# =============================================================================
+# PRICE IMPACT LIMITS
+# =============================================================================
+# Maximum price impact allowed
+max_price_impact_percent: 3.0  # 3.0% maximum price impact
+
+# =============================================================================
+# SECURITY SETTINGS
+# =============================================================================
+# Blacklisted addresses (known scams, honeypots)
+# Add addresses here to block transactions with these tokens
+blacklisted_addresses: []
+
+# Suspicious patterns to detect (regex patterns)
+suspicious_patterns: []
+
+# =============================================================================
+# STRATEGY-SPECIFIC OVERRIDES
+# =============================================================================
+# Override default limits for specific strategies
+strategy_overrides:
+  # Spot trading - tighter limits
+  spot:
+    max_position_usd: 5000
+    max_slippage_percent: 2.0
+    max_price_impact_percent: 2.0
+
+  # LP rebalancing - allow larger positions
+  lp:
+    max_position_usd: 15000
+    max_slippage_percent: 5.0
+    max_price_impact_percent: 3.0
+
+  # Perps trading - different limits
+  perps:
+    max_position_usd: 8000
+    max_slippage_percent: 1.0
+    max_price_impact_percent: 1.0
+
+  # Arbitrage - tighter slippage for accuracy
+  arbitrage:
+    max_position_usd: 5000
+    max_slippage_percent: 1.0
+    max_price_impact_percent: 0.5
+    min_position_usd: 100
+
+  # Lending - more conservative
+  lending:
+    max_position_usd: 20000
+    max_slippage_percent: 1.0
+    min_position_usd: 50
+
+# =============================================================================
+# LOGGING SETTINGS
+# =============================================================================
+logging:
+  # Log all validation attempts
+  log_all_validations: true
+  
+  # Log only blocked transactions
+  log_only_blocked: false
+  
+  # Alert thresholds
+  alert_on_high_risk_score: 50
+  alert_on_repeated_blocks: 5
+
+# =============================================================================
+# ADVANCED SETTINGS
+# =============================================================================
+advanced:
+  # Config reload interval in milliseconds
+  config_reload_interval_ms: 60000
+  
+  # Connection timeout for on-chain validation
+  validation_timeout_ms: 5000
+  
+  # Maximum retries for liquidity checks
+  liquidity_check_retries: 2
+

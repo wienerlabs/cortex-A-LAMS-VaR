@@ -1,0 +1,13 @@
+# ONNX model files (all strategies: LP, Perps, Lending, Spot)
+*.onnx filter=lfs diff=lfs merge=lfs -text
+
+# CSV data files (training data for testers)
+agent/data/simulation/*.csv filter=lfs diff=lfs merge=lfs -text
+agent/training/perps/data/*.csv filter=lfs diff=lfs merge=lfs -text
+agent/training/perps/features/*.csv filter=lfs diff=lfs merge=lfs -text
+agent/training/perps/models/*.csv filter=lfs diff=lfs merge=lfs -text
+agent/data/lending/*.csv filter=lfs diff=lfs merge=lfs -text
+agent/data/spot/*.csv filter=lfs diff=lfs merge=lfs -text
+
+# Large JSON model files (XGBoost JSON exports)
+agent/eliza/src/models/spot/spot_model.json filter=lfs diff=lfs merge=lfs -text

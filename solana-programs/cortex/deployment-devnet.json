@@ -1,0 +1,23 @@
+{
+  "network": "devnet",
+  "timestamp": "2026-01-13T16:40:00.000Z",
+  "programs": {
+    "cortex": "9qeww9s48ByyxzPuoiwhvYfB9dfG4Q3a1VnJrYcahwo6",
+    "staking": "rYantWFyB4PsL36r9XB7nUb8TQ1pAhn9A87S6TbpMsr",
+    "vault": "7nVZjbjEiJVPzaKBPDWJ5dPVMmcEBduDtiWi9o67nosS",
+    "strategy": "WpEYz9eHtu3jhZkLsfgyyFpWR5C7bjswktpso5BWeQS",
+    "treasury": "GsMtBFGq3DWFGDqtJ6Fb4LjdB6sBADKL2Lix9xaYV7GS"
+  },
+  "tokens": {
+    "cortexMint": "H3PixFGpVAq2nooeDhETjTpJnR11GqRGz5heNPHKjQyE"
+  },
+  "pdas": {
+    "stakingPool": "8TW2mT1FS1hdaSTDv3h8WY5B19A5KrwMjAHxFCwwmCG7",
+    "treasury": "CpDHwGW9CypwZ412fCs6NrSt8dt78kMgDFprd8kqVpLR"
+  },
+  "accounts": {
+    "stakeVault": "9EZ1Aqvct74DUsMeykiXyA5vDJSGGq617pr4gLinZYxb",
+    "treasuryVault": "9EZ1Aqvct74DUsMeykiXyA5vDJSGGq617pr4gLinZYxb"
+  },
+  "authority": "99V3KqSeG5RQ9aejiidjdfZ2mhnQr5h3C7keywN6ZBRu"
+}

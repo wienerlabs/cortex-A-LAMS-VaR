@@ -1,0 +1,107 @@
+# Auto-Retraining Configuration
+# Controls automated model retraining based on performance, time, and data drift
+
+# Master switch for auto-retraining
+enabled: true
+
+# How often to check for retraining needs (in hours)
+check_interval_hours: 24
+
+# Models to monitor for retraining
+models:
+  - perps
+  - spot
+  - lp
+  - lending
+
+# Maximum concurrent retraining jobs
+max_concurrent_retraining: 1
+
+# Whether to automatically deploy models that pass validation
+auto_deploy_on_success: true
+
+# ============= TRIGGERS =============
+
+triggers:
+  # Performance degradation trigger
+  performance:
+    enabled: true
+    # Minimum precision drop to trigger retraining (e.g., 0.10 = 10%)
+    precision_drop_threshold: 0.10
+    # Minimum recall drop to trigger retraining
+    recall_drop_threshold: 0.10
+    # Minimum Sharpe ratio drop to trigger retraining
+    sharpe_drop_threshold: 0.20
+    # Number of recent trades to use for evaluation
+    window_trades: 100
+
+  # Time-based trigger
+  time:
+    enabled: true
+    # Maximum days since last training before triggering retraining
+    max_days_since_training: 30
+
+  # Data drift trigger
+  drift:
+    enabled: true
+    # Population Stability Index threshold (>0.2 indicates significant drift)
+    psi_threshold: 0.2
+    # Kolmogorov-Smirnov statistic threshold (>0.05 indicates drift)
+    ks_threshold: 0.05
+
+# ============= VALIDATION =============
+
+validation:
+  # Minimum improvement required to deploy new model (e.g., 0.02 = 2%)
+  min_improvement: 0.02
+  # Maximum allowed regression on any metric (e.g., -0.05 = -5%)
+  max_regression: -0.05
+  # Metrics that must not regress for deployment
+  critical_metrics:
+    - precision
+    - sharpe
+  # Metric weights for overall score calculation
+  metric_weights:
+    precision: 0.30
+    recall: 0.20
+    f1_score: 0.20
+    roc_auc: 0.15
+    sharpe: 0.15
+
+# ============= NOTIFICATIONS =============
+
+notifications:
+  # Enable notifications
+  enabled: true
+  # Notification channels (log, email, slack)
+  channels:
+    - log
+    # - email
+    # - slack
+  # PM email for critical notifications
+  pm_email: ""
+  # Slack webhook URL for team notifications
+  slack_webhook_url: ""
+  # Events to notify on
+  notify_on:
+    - retraining_started
+    - retraining_completed
+    - new_model_deployed
+    - retraining_failed
+    - performance_degradation
+    - model_drift_detected
+
+# ============= TRAINING =============
+
+training:
+  # Python executable path
+  python_path: python3
+  # Training timeout in minutes
+  timeout_minutes: 30
+  # Scripts directory (relative to agent root)
+  scripts_dir: scripts
+  # Models directory (relative to eliza root)
+  models_dir: models
+  # Data directory (relative to agent root)
+  data_dir: data
+

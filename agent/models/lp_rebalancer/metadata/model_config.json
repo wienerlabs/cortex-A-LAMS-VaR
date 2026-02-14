@@ -1,0 +1,130 @@
+{
+  "model_info": {
+    "name": "lp_rebalancer",
+    "version": "1.1.0",
+    "type": "XGBClassifier",
+    "task": "binary_classification",
+    "target": "label",
+    "description": "LP Rebalancing decision model for Solana DEX pools"
+  },
+  "training": {
+    "date": "2025-12-29",
+    "platform": "Google Colab",
+    "python_version": "3.12",
+    "xgboost_version": "2.0+",
+    "note": "Retrained without future_* columns (data leakage fix)"
+  },
+  "data": {
+    "source": "pool_features.csv",
+    "date_range": {
+      "start": "2025-11-29",
+      "end": "2025-12-29"
+    },
+    "total_samples": 7920,
+    "frequency": "hourly",
+    "pools": ["BONK-SOL", "SOL-USDC", "SOL-USDT"]
+  },
+  "split": {
+    "method": "time_series",
+    "train_ratio": 0.6,
+    "val_ratio": 0.2,
+    "test_ratio": 0.2,
+    "train_samples": 4752,
+    "val_samples": 1584,
+    "test_samples": 1584
+  },
+  "hyperparameters": {
+    "objective": "binary:logistic",
+    "eval_metric": "auc",
+    "max_depth": 6,
+    "learning_rate": 0.05,
+    "n_estimators": 500,
+    "subsample": 0.8,
+    "colsample_bytree": 0.8,
+    "reg_alpha": 0.1,
+    "reg_lambda": 1.0,
+    "scale_pos_weight": "auto",
+    "early_stopping_rounds": 50,
+    "random_state": 42
+  },
+  "performance": {
+    "test_set": {
+      "accuracy": 0.8396,
+      "precision": 0.7536,
+      "recall": 0.9813,
+      "f1": 0.8525,
+      "roc_auc": 0.9418
+    }
+  },
+  "backtest": {
+    "test_period": "2025-11-29 to 2025-12-29",
+    "test_samples": 7920,
+    "initial_capital": 10000,
+    "cost_model": {
+      "version": "2.0_realistic",
+      "gas_sol": 0.00005,
+      "jupiter_fee_pct": 0.001,
+      "base_slippage_pct": 0.005,
+      "size_impact_per_1k": 0.001,
+      "latency_slippage_pct": 0.002,
+      "lp_entry_fee_pct": 0.003,
+      "lp_exit_fee_pct": 0.003,
+      "total_cost_1k_trade_pct": 1.502
+    },
+    "results_with_realistic_costs": {
+      "threshold_0.88_cooldown_24h": {
+        "return_pct": 9.62,
+        "rebalances": 15,
+        "alpha_pct": 9.62,
+        "win_rate": 1.0
+      },
+      "threshold_0.90_cooldown_24h": {
+        "return_pct": 9.28,
+        "rebalances": 4,
+        "alpha_pct": 9.28,
+        "win_rate": 1.0
+      },
+      "threshold_0.97_cooldown_24h": {
+        "return_pct": 8.50,
+        "rebalances": 3,
+        "alpha_pct": 8.50,
+        "win_rate": 1.0
+      }
+    },
+    "best_configuration": {
+      "threshold": 0.88,
+      "min_profit_pct": 2.0,
+      "cooldown_hours": 24,
+      "net_return_pct": 9.62,
+      "rebalances": 15,
+      "alpha_vs_hodl_pct": 9.62,
+      "notes": "Optimized 2026-01-06 with realistic cost model"
+    }
+  },
+  "files": {
+    "model_json": "lp_rebalancer.json",
+    "model_pkl": "lp_rebalancer.pkl",
+    "model_ubj": "lp_rebalancer.ubj",
+    "features": "metadata/feature_names.json"
+  },
+  "inference": {
+    "input_features": 61,
+    "output": "probability",
+    "threshold": 0.88,
+    "filters": {
+      "cooldown_hours": 24,
+      "min_profit_pct": 0.02,
+      "max_rebalances_per_day": 1
+    },
+    "cost_aware": {
+      "min_expected_gain_pct": 2.0,
+      "total_cost_assumption_pct": 1.5,
+      "net_profit_threshold_pct": 0.5
+    },
+    "decision_rules": {
+      "REBALANCE": "probability >= 0.88 AND cooldown_elapsed AND expected_gain >= cost + 0.5%",
+      "HOLD": "probability < 0.88 OR cooldown_not_elapsed OR expected_gain < cost + 0.5%"
+    }
+  }
+}
+

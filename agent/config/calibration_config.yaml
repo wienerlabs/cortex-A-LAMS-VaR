@@ -1,0 +1,60 @@
+# Model Calibration Configuration
+# 
+# Platt Scaling calibration for ML model probability outputs.
+# Ensures model confidence scores reflect true win rates.
+#
+# Problem: Model says 80% confidence, actual win rate might be 60%
+# Solution: Platt Scaling learns the mapping from raw → calibrated probabilities
+
+# Global settings
+enabled: true
+method: platt  # Options: platt, isotonic (platt recommended for binary classification)
+
+# Calibration quality thresholds
+min_ece_improvement: 0.02  # Minimum ECE improvement to use calibration
+max_acceptable_ece: 0.10   # Maximum acceptable ECE (Expected Calibration Error)
+max_acceptable_brier: 0.25 # Maximum acceptable Brier score
+
+# Calibration curve settings
+save_calibration_curves: true
+num_bins: 10  # Number of bins for ECE calculation
+
+# Model-specific settings
+models:
+  lp_rebalancer:
+    enabled: true
+    min_samples: 100  # Minimum validation samples for calibration
+    recalibrate_interval_days: 7  # Recalibrate every N days
+    
+  perps_predictor:
+    enabled: true
+    min_samples: 100
+    recalibrate_interval_days: 7
+    
+  spot_model:
+    enabled: true
+    min_samples: 100
+    recalibrate_interval_days: 7
+    
+  lending_model:
+    enabled: true
+    min_samples: 50
+    recalibrate_interval_days: 14
+
+# Logging settings
+logging:
+  log_calibration_attempts: true
+  log_calibration_results: true
+  log_individual_predictions: false  # Very verbose, disable in production
+
+# Fallback behavior
+fallback:
+  use_raw_probability: true  # If calibration unavailable, use raw probability
+  warn_on_fallback: true     # Log warning when using fallback
+
+# Validation settings
+validation:
+  cross_validate: true       # Use cross-validation for calibration
+  cv_folds: 5               # Number of cross-validation folds
+  holdout_ratio: 0.2        # Holdout ratio for final evaluation
+

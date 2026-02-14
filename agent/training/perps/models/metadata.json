@@ -1,0 +1,212 @@
+{
+  "model_info": {
+    "name": "perps_funding_rate_predictor",
+    "version": "2.0.0",
+    "type": "XGBClassifier",
+    "timestamp": "20260127_042643",
+    "framework": "xgboost",
+    "has_lightgbm_ensemble": false
+  },
+  "training_config": {
+    "features_path": "./features/perps_features.csv",
+    "n_features": 65,
+    "feature_names": [
+      "funding_rate",
+      "funding_rate_raw",
+      "funding_lag_1h",
+      "funding_lag_2h",
+      "funding_lag_4h",
+      "funding_lag_8h",
+      "funding_lag_12h",
+      "funding_lag_24h",
+      "funding_mean_1h",
+      "funding_std_1h",
+      "funding_min_1h",
+      "funding_max_1h",
+      "funding_skew_1h",
+      "funding_mean_4h",
+      "funding_std_4h",
+      "funding_min_4h",
+      "funding_max_4h",
+      "funding_skew_4h",
+      "funding_mean_8h",
+      "funding_std_8h",
+      "funding_min_8h",
+      "funding_max_8h",
+      "funding_skew_8h",
+      "funding_mean_24h",
+      "funding_std_24h",
+      "funding_min_24h",
+      "funding_max_24h",
+      "funding_skew_24h",
+      "funding_mean_48h",
+      "funding_std_48h",
+      "funding_min_48h",
+      "funding_max_48h",
+      "funding_skew_48h",
+      "funding_mean_168h",
+      "funding_std_168h",
+      "funding_min_168h",
+      "funding_max_168h",
+      "funding_skew_168h",
+      "funding_momentum_4h",
+      "funding_momentum_24h",
+      "cum_funding_long",
+      "cum_funding_short",
+      "cum_funding_diff",
+      "funding_sign",
+      "funding_sign_change",
+      "funding_sign_changes_24h",
+      "funding_zscore",
+      "return_1h",
+      "return_4h",
+      "return_8h",
+      "return_24h",
+      "return_48h",
+      "volatility_24h",
+      "volatility_48h",
+      "volatility_168h",
+      "price_momentum_24h",
+      "price_momentum_48h",
+      "basis",
+      "hour",
+      "day_of_week",
+      "is_weekend",
+      "hour_sin",
+      "hour_cos",
+      "dow_sin",
+      "dow_cos"
+    ],
+    "hyperparameters": {
+      "n_estimators": 300,
+      "max_depth": 6,
+      "learning_rate": 0.05,
+      "subsample": 0.8,
+      "colsample_bytree": 0.8,
+      "colsample_bylevel": 0.8,
+      "min_child_weight": 5,
+      "reg_alpha": 1.0,
+      "reg_lambda": 1.0,
+      "gamma": 0.1,
+      "scale_pos_weight": 0.926930581701722,
+      "objective": "binary:logistic",
+      "eval_metric": "logloss",
+      "tree_method": "hist",
+      "random_state": 42,
+      "n_jobs": -1
+    },
+    "optuna_trials": 0,
+    "train_val_test_split": "70%/15%/15%",
+    "profit_weights": {
+      "fp_weight": 0.78,
+      "fn_weight": 1.45
+    },
+    "scale_pos_weight": 0.926930581701722
+  },
+  "metrics": {
+    "accuracy": 0.900564617314931,
+    "precision": 0.9435005926511261,
+    "recall": 0.9320843091334895,
+    "f1_score": 0.9377577066561947,
+    "roc_auc": 0.9383867934645707
+  },
+  "targets": {
+    "target_precision": 0.7,
+    "target_recall": 0.5,
+    "target_roc_auc": 0.75,
+    "max_sharpe": 3.0,
+    "target_ece": 0.1,
+    "meets_targets": true
+  },
+  "calibration": {
+    "ece_before": 0.017199069957047515,
+    "ece_after": 0.03293444074156303,
+    "brier_before": 0.06869018084593784,
+    "brier_after": 0.07236464912647525,
+    "is_well_calibrated": true
+  },
+  "regime_performance": {
+    "SIDEWAYS": {
+      "samples": 3187,
+      "positive_rate": 0.8035770316912457,
+      "precision": 0.9434782608695652,
+      "recall": 0.9320577899258102,
+      "roc_auc": 0.9383714678147139
+    }
+  },
+  "walk_forward": {
+    "num_windows": 6,
+    "results": [
+      {
+        "window": 1,
+        "train_size": 2124,
+        "test_size": 2124,
+        "precision": 0.8582089552238806,
+        "recall": 0.9156050955414012,
+        "f1": 0.8859784283513097,
+        "roc_auc": 0.976729878401853
+      },
+      {
+        "window": 2,
+        "train_size": 4248,
+        "test_size": 2124,
+        "precision": 0.9254437869822485,
+        "recall": 0.8921848260125499,
+        "f1": 0.9085100203311066,
+        "roc_auc": 0.8955291122034926
+      },
+      {
+        "window": 3,
+        "train_size": 6372,
+        "test_size": 2124,
+        "precision": 0.9659156556903524,
+        "recall": 0.9032955159373312,
+        "f1": 0.9335566722501396,
+        "roc_auc": 0.9195959811843117
+      },
+      {
+        "window": 4,
+        "train_size": 8496,
+        "test_size": 2124,
+        "precision": 0.9300791556728232,
+        "recall": 0.9215686274509803,
+        "f1": 0.9258043335521996,
+        "roc_auc": 0.944438942804956
+      },
+      {
+        "window": 5,
+        "train_size": 10620,
+        "test_size": 2124,
+        "precision": 0.9352094240837696,
+        "recall": 0.9451058201058201,
+        "f1": 0.9401315789473684,
+        "roc_auc": 0.9626376785282015
+      },
+      {
+        "window": 6,
+        "train_size": 12744,
+        "test_size": 2124,
+        "precision": 0.9429250891795482,
+        "recall": 0.9474313022700119,
+        "f1": 0.9451728247914184,
+        "roc_auc": 0.9512478428249038
+      }
+    ]
+  },
+  "files": {
+    "model_pkl": "perps_model_20260127_042643.pkl",
+    "model_latest": "perps_model_latest.pkl",
+    "onnx": "perps_predictor.onnx",
+    "calibration": "calibration/perps_predictor_calibration.json",
+    "roc_curve": null,
+    "shap_summary": null,
+    "feature_importance": null
+  },
+  "usage": {
+    "input_format": "numpy array of shape (n_samples, n_features)",
+    "output_format": "binary classification (0=NO_TRADE, 1=TRADE)",
+    "preprocessing": "StandardScaler (included in pkl)",
+    "threshold": "0.25% funding rate for profitable trades",
+    "calibration": "Apply Platt Scaling for accurate probabilities"
+  }
+}
