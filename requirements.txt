@@ -40,6 +40,9 @@ prometheus-fastapi-instrumentator>=6.0
 # Async Caching (Redis + in-memory fallback)
 cashews[redis]>=7.0
 
+# Redis (model state persistence)
+redis[hiredis]>=5.0
+
 # Hawkes Performance (optional — graceful fallback if unavailable)
 numba>=0.59.0
 tick>=0.7; python_version<"3.12"

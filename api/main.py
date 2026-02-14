@@ -16,9 +16,11 @@ from cashews.contrib.fastapi import CacheEtagMiddleware, CacheDeleteMiddleware
 
 from api.middleware import RateLimitMiddleware, RequestIDMiddleware, get_allowed_origins
 from api.routes import router
+from api.stores import ALL_STORES
 from cortex.cache import cache, setup_cache
 from cortex.config import API_VERSION, METRICS_ENABLED
 from cortex.logging import setup_logging
+from cortex.persistence import close_persistence, init_persistence
 
 setup_logging()
 logger = structlog.get_logger("cortex_risk_engine")
@@ -28,7 +30,23 @@ logger = structlog.get_logger("cortex_risk_engine")
 async def lifespan(app: FastAPI):
     logger.info("CortexAgent Risk Engine starting up")
     await setup_cache()
+
+    await init_persistence()
+    total = 0
+    for store in ALL_STORES:
+        total += await store.restore()
+    if total:
+        logger.info("Restored %d model state(s) from Redis", total)
+
     yield
+
+    persisted = 0
+    for store in ALL_STORES:
+        persisted += await store.persist_all()
+    if persisted:
+        logger.info("Persisted %d model state(s) to Redis", persisted)
+
+    await close_persistence()
     await cache.close()
     logger.info("CortexAgent Risk Engine shutting down")
 
