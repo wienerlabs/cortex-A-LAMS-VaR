@@ -1,0 +1,109 @@
+{
+  "model_info": {
+    "name": "lp_rebalancer",
+    "version": "1.1.0",
+    "type": "XGBClassifier",
+    "task": "binary_classification",
+    "target": "label",
+    "description": "LP Rebalancing decision model for Solana DEX pools"
+  },
+  "training": {
+    "date": "2025-12-29",
+    "platform": "Google Colab",
+    "python_version": "3.12",
+    "xgboost_version": "2.0+",
+    "note": "Retrained without future_* columns (data leakage fix)"
+  },
+  "data": {
+    "source": "pool_features.csv",
+    "date_range": {
+      "start": "2025-11-29",
+      "end": "2025-12-29"
+    },
+    "total_samples": 7920,
+    "frequency": "hourly",
+    "pools": ["BONK-SOL", "SOL-USDC", "SOL-USDT"]
+  },
+  "split": {
+    "method": "time_series",
+    "train_ratio": 0.6,
+    "val_ratio": 0.2,
+    "test_ratio": 0.2,
+    "train_samples": 4752,
+    "val_samples": 1584,
+    "test_samples": 1584
+  },
+  "hyperparameters": {
+    "objective": "binary:logistic",
+    "eval_metric": "auc",
+    "max_depth": 6,
+    "learning_rate": 0.05,
+    "n_estimators": 500,
+    "subsample": 0.8,
+    "colsample_bytree": 0.8,
+    "reg_alpha": 0.1,
+    "reg_lambda": 1.0,
+    "scale_pos_weight": "auto",
+    "early_stopping_rounds": 50,
+    "random_state": 42
+  },
+  "performance": {
+    "test_set": {
+      "accuracy": 0.8396,
+      "precision": 0.7536,
+      "recall": 0.9813,
+      "f1": 0.8525,
+      "roc_auc": 0.9418
+    }
+  },
+  "backtest": {
+    "test_period": "2025-12-23 to 2025-12-29",
+    "test_samples": 1584,
+    "initial_capital": 10000,
+    "rebalance_cost_pct": 0.003,
+    "hourly_apy_assumption": 0.50,
+    "results": {
+      "no_filter": {
+        "threshold_0.5": {"return_pct": -98.84, "rebalances": 1019, "alpha_pct": -101.85},
+        "threshold_0.9": {"return_pct": -0.54, "rebalances": 36, "alpha_pct": -3.55}
+      },
+      "with_24h_cooldown": {
+        "threshold_0.8": {"return_pct": 0.66, "rebalances": 24, "alpha_pct": -2.35},
+        "threshold_0.9": {"return_pct": 2.66, "rebalances": 4, "alpha_pct": -0.35}
+      },
+      "with_24h_cooldown_2pct_min": {
+        "threshold_0.8": {"return_pct": 0.86, "rebalances": 22, "alpha_pct": -2.15},
+        "threshold_0.9": {"return_pct": 2.86, "rebalances": 2, "alpha_pct": -0.15}
+      }
+    },
+    "best_configuration": {
+      "filter": "24h_cooldown_2pct_min",
+      "threshold": 0.9,
+      "net_return_pct": 2.86,
+      "rebalances": 2,
+      "cost_usd": 20,
+      "alpha_vs_hodl_pct": -0.15
+    }
+  },
+  "files": {
+    "model_json": "lp_rebalancer.json",
+    "model_pkl": "lp_rebalancer.pkl",
+    "model_ubj": "lp_rebalancer.ubj",
+    "features": "metadata/feature_names.json"
+  },
+  "inference": {
+    "input_features": 61,
+    "output": "probability",
+    "threshold": 0.9,
+    "filters": {
+      "cooldown_hours": 24,
+      "min_profit_pct": 0.02,
+      "max_rebalances_per_day": 1
+    },
+    "decision_rules": {
+      "REBALANCE": "probability >= 0.9 AND cooldown_elapsed AND profit_potential >= 2%",
+      "HOLD": "probability < 0.9 OR cooldown_not_elapsed"
+    }
+  }
+}
+

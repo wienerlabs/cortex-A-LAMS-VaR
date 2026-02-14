@@ -1,0 +1,22 @@
+{
+  "trained_at": "2026-01-20T01:40:35.271061",
+  "n_features": 69,
+  "n_train_samples": 1578,
+  "n_test_samples": 395,
+  "accuracy": 0.769620253164557,
+  "roc_auc": 0.7548958977530406,
+  "params": {
+    "objective": "binary:logistic",
+    "max_depth": 6,
+    "learning_rate": 0.05,
+    "n_estimators": 200,
+    "min_child_weight": 3,
+    "subsample": 0.8,
+    "colsample_bytree": 0.8,
+    "gamma": 0.1,
+    "reg_alpha": 0.1,
+    "reg_lambda": 1.0,
+    "random_state": 42,
+    "eval_metric": "logloss"
+  }
+}

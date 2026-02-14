@@ -1,0 +1,11 @@
+{
+  "A": 6.380009068341944,
+  "B": -3.0922203767982364,
+  "model_name": "perps_predictor",
+  "fitted_at": "2026-01-27T04:26:43.133225",
+  "validation_samples": 3187,
+  "ece_before_calibration": 0.017199069957047515,
+  "ece_after_calibration": 0.03293444074156303,
+  "brier_score_before": 0.06869018084593784,
+  "brier_score_after": 0.07236464912647525
+}

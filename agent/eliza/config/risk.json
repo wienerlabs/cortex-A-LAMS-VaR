@@ -1,0 +1,64 @@
+{
+  "$schema": "./risk.schema.json",
+  "version": "1.0.0",
+  "lastUpdated": "2026-01-06",
+  "dataSource": {
+    "analysisFile": "../../../models/lp_rebalancer/metadata/risk_analysis.json",
+    "sampleSize": 21,
+    "dateRange": "2025-11-29 to 2025-12-29",
+    "dataQualityScore": 0.56
+  },
+  "limits": {
+    "positionSizing": {
+      "maxPositionPct": 3.7,
+      "minPositionPct": 0.7,
+      "method": "Half-Kelly Criterion",
+      "rationale": "Half-Kelly=3.66% based on win_rate=23.8%, avg_win=3.63%, avg_loss=0.78%",
+      "confidence": "medium",
+      "note": "Conservative half-Kelly accounts for model uncertainty and transaction costs"
+    },
+    "dailyLimits": {
+      "maxDailyLossPct": 5.0,
+      "maxDailyTrades": 2,
+      "rationale": "worst_day=-1.48% × 1.5 safety_buffer + std=2.82%",
+      "note": "Prevents excessive drawdown on volatile days"
+    },
+    "volatilityFilter": {
+      "maxVolatility24h": 0.15,
+      "minVolatility24h": 0.02,
+      "originalValues": {
+        "maxFromData": 1.2908,
+        "minFromData": 0.4662,
+        "note": "Original values too high due to price volatility metric, using practical SOL volatility limits"
+      },
+      "rationale": "Avoid trading in extreme volatility; require minimum volatility for opportunity",
+      "note": "15% daily vol cap protects against flash crashes, 2% min ensures trading opportunity"
+    },
+    "cooldown": {
+      "minCooldownHours": 24,
+      "rationale": "Based on avg 1.0 trades/day optimal spacing from backtest",
+      "note": "Prevents overtrading and allows market conditions to stabilize"
+    }
+  },
+  "recommendations": [
+    {
+      "priority": 1,
+      "action": "Collect 60+ days of data to improve data quality score",
+      "expectedImpact": "Data quality 56% → 90%+, more reliable limits",
+      "status": "pending"
+    },
+    {
+      "priority": 2,
+      "action": "Add real-time volatility feed for dynamic filtering",
+      "expectedImpact": "Better entry timing, improved win rate",
+      "status": "pending"
+    },
+    {
+      "priority": 3,
+      "action": "Implement portfolio value tracking for accurate position sizing",
+      "expectedImpact": "Proper Kelly sizing instead of fixed percentages",
+      "status": "pending"
+    }
+  ]
+}
+

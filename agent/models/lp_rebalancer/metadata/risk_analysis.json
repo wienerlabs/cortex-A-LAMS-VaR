@@ -1,0 +1,62 @@
+{
+  "timestamp": "2026-01-06T18:21:10.878645",
+  "risk_limits": {
+    "max_position_pct": 3.7,
+    "min_position_pct": 0.7,
+    "position_rationale": "Half-Kelly=3.66% based on win_rate=23.8%, avg_win=3.63%, avg_loss=0.78%",
+    "max_daily_loss_pct": 5.0,
+    "max_daily_trades": 2,
+    "daily_loss_rationale": "worst_day=-1.48% \u00d7 1.5 + std=2.82%",
+    "max_volatility_24h": 1.2908,
+    "min_volatility_24h": 0.4662,
+    "volatility_rationale": "Profitable trades avg_vol=0.8785 \u00b1 0.2749",
+    "min_cooldown_hours": 24,
+    "cooldown_rationale": "Based on avg 1.0 trades/day optimal spacing",
+    "data_quality_score": 0.56,
+    "sample_size": 21,
+    "date_range": "2025-11-29 to 2025-12-29"
+  },
+  "trade_analysis": {
+    "all_trades": {
+      "count": 21,
+      "avg_return": 0.26550436119012694,
+      "std_return": 2.8182239342962783,
+      "avg_volatility": 0.7110712699981323,
+      "std_volatility": 0.32030823519515156,
+      "max_gain": 10.6519413510124,
+      "max_loss": -1.4805675406053014,
+      "avg_trade_size_pct": 10.0
+    },
+    "profitable": {
+      "count": 5,
+      "avg_return": 3.6251081301002257,
+      "std_return": 4.540889700941079,
+      "avg_volatility": 0.8785049554624479,
+      "std_volatility": 0.2748750231812988,
+      "max_gain": 10.6519413510124,
+      "max_loss": 0.09677760583310206,
+      "avg_trade_size_pct": 10.0
+    },
+    "losing": {
+      "count": 16,
+      "avg_return": -0.7843718165942789,
+      "std_return": 0.39144846686079443,
+      "avg_volatility": 0.6552600415100271,
+      "std_volatility": 0.3229585597195815,
+      "max_gain": -0.19551841594771124,
+      "max_loss": -1.4805675406053014,
+      "avg_trade_size_pct": 10.0
+    },
+    "win_rate": 0.23809523809523808
+  },
+  "daily_analysis": {
+    "total_days": 21,
+    "trading_days": 21,
+    "avg_daily_return": 0.26550436119012694,
+    "std_daily_return": 2.8182239342962783,
+    "worst_day_return": -1.4805675406053014,
+    "best_day_return": 10.6519413510124,
+    "max_trades_per_day": "1",
+    "avg_trades_per_day": 1.0
+  }
+}
