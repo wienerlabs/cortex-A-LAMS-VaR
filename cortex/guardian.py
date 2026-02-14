@@ -323,8 +323,9 @@ def assess_trade(
     cache_key = f"{token}:{direction}"
     now = time.time()
 
-    if cache_key in _cache and (now - _cache[cache_key]["ts"]) < CACHE_TTL_SECONDS:
-        cached = _cache[cache_key]["result"].copy()
+    cached_result = _cache.get(cache_key)
+    if cached_result is not None:
+        cached = cached_result.copy()
         cached["from_cache"] = True
         return cached
 
@@ -461,6 +462,6 @@ def assess_trade(
         risk_score, veto_reasons, current_regime, confidence,
     )
 
-    _cache[cache_key] = {"ts": now, "result": result}
+    _cache.set(cache_key, result)
     return result
 
