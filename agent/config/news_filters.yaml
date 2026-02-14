@@ -1,0 +1,173 @@
+# News Analyst Configuration
+# Defines keywords, triggers, and source settings for news-based trading decisions
+
+# ==============================================================================
+# CRITICAL KEYWORDS
+# Keywords that trigger immediate attention based on sentiment direction
+# ==============================================================================
+critical_keywords:
+  # Negative keywords - potential sell/exit signals
+  negative:
+    - hack
+    - exploit
+    - vulnerability
+    - breach
+    - stolen
+    - drained
+    - rug
+    - rugpull
+    - scam
+    - fraud
+    - sec
+    - lawsuit
+    - charges
+    - enforcement
+    - ban
+    - banned
+    - prohibited
+    - shutdown
+    - insolvent
+    - bankrupt
+    - collapse
+    - crash
+    - dump
+    - delisted
+    - suspended
+    - freeze
+    - frozen
+    - investigation
+    - subpoena
+    - arrest
+    - indictment
+    
+  # Positive keywords - potential buy/hold signals
+  positive:
+    - approval
+    - approved
+    - adoption
+    - partnership
+    - integration
+    - launch
+    - upgrade
+    - bullish
+    - rally
+    - breakout
+    - ath
+    - listing
+    - listed
+    - institutional
+    - etf
+    - custody
+    - mainstream
+    - milestone
+    - record
+    - growth
+
+# ==============================================================================
+# AUTO-EXIT TRIGGERS
+# Conditions that trigger automatic position exit for risk management
+# ==============================================================================
+auto_exit_triggers:
+  # Security incidents
+  - keyword: hack
+    min_amount_usd: 10000000  # $10M+ hack triggers exit
+    severity: critical
+    action: exit_all
+    
+  - keyword: exploit
+    min_amount_usd: 1000000   # $1M+ exploit triggers exit
+    severity: critical
+    action: exit_all
+    
+  - keyword: drained
+    min_amount_usd: 5000000   # $5M+ drained triggers exit
+    severity: critical
+    action: exit_all
+    
+  # Regulatory actions
+  - keyword: sec
+    phrases:
+      - enforcement action
+      - lawsuit
+      - charges filed
+      - securities violation
+    severity: high
+    action: reduce_position
+    reduction_pct: 50
+    
+  - keyword: ban
+    phrases:
+      - trading ban
+      - crypto ban
+      - exchange ban
+    severity: high
+    action: reduce_position
+    reduction_pct: 75
+    
+  # Exchange/Protocol issues
+  - keyword: insolvent
+    severity: critical
+    action: exit_all
+    
+  - keyword: bankrupt
+    severity: critical
+    action: exit_all
+    
+  - keyword: suspended
+    phrases:
+      - withdrawals suspended
+      - trading suspended
+    severity: high
+    action: exit_all
+
+# ==============================================================================
+# NEWS SOURCES CONFIGURATION
+# Enabled sources and their specific settings
+# ==============================================================================
+news_sources:
+  # Enabled sources (order matters for priority)
+  enabled:
+    - cryptopanic
+    - rss
+    - onchain
+    
+  # CryptoPanic API settings
+  cryptopanic:
+    enabled: true
+    weight: 0.4
+    cache_ttl_minutes: 30
+    max_items_per_request: 20
+    
+  # RSS Feed sources
+  rss:
+    enabled: true
+    weight: 0.3
+    feeds:
+      - name: CoinDesk
+        url: https://www.coindesk.com/arc/outboundfeeds/rss/
+        priority: high
+      - name: CoinTelegraph
+        url: https://cointelegraph.com/rss
+        priority: high
+      - name: The Block
+        url: https://www.theblock.co/rss.xml
+        priority: medium
+      - name: Decrypt
+        url: https://decrypt.co/feed
+        priority: medium
+    refresh_interval_minutes: 5
+    
+  # On-chain event monitoring
+  onchain:
+    enabled: true
+    weight: 0.3
+    events:
+      - type: large_transfer
+        min_amount_usd: 10000000  # $10M+
+      - type: whale_alert
+        min_amount_usd: 50000000  # $50M+
+      - type: protocol_upgrade
+        notify: true
+      - type: governance_vote
+        notify: true
+

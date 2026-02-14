@@ -1,0 +1,50 @@
+{
+  "model_type": "cross_dex_arbitrage_v3_vs_v2",
+  "version": "2.0.0",
+  "training_date": "2025-12-26T19:53:12.449992",
+  "features": [
+    "spread_ma_12",
+    "spread_std_12",
+    "spread_ma_24",
+    "spread_std_24",
+    "spread_ma_48",
+    "spread_std_48",
+    "spread_change",
+    "spread_pct_change",
+    "total_volume",
+    "volume_ma_12",
+    "volume_ma_24",
+    "volume_ma_48",
+    "volume_ratio",
+    "v3_volume",
+    "v2_volume",
+    "v3_price",
+    "v2_price",
+    "price_ma_12",
+    "price_volatility",
+    "gas_gwei",
+    "gas_cost_usd",
+    "slippage",
+    "dex_fees_pct",
+    "gas_cost_pct",
+    "hour",
+    "day_of_week",
+    "is_weekend"
+  ],
+  "metrics": {
+    "accuracy": 0.9556370913942629,
+    "precision": 0.9311986668253779,
+    "recall": 0.9890012642225031,
+    "f1": 0.9592299675065906,
+    "auc": 0.9667684383637962
+  },
+  "best_iteration": 48,
+  "data_info": {
+    "start": "2024-12-26 00:00:00+00:00",
+    "end": "2025-12-25 23:50:00+00:00",
+    "total_samples": 99929,
+    "train_samples": 69950,
+    "val_samples": 14989,
+    "test_samples": 14990
+  }
+}

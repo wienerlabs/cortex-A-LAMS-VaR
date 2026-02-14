@@ -1,0 +1,125 @@
+{
+  "description": "Historical stress events for replay testing. Data from real market events.",
+  "events": [
+    {
+      "id": "luna_collapse",
+      "name": "LUNA/UST Collapse",
+      "date": "2022-05-09",
+      "end_date": "2022-05-12",
+      "duration_days": 3,
+      "description": "UST depeg led to LUNA hyperinflation and complete collapse",
+      "price_action": {
+        "asset": "LUNA",
+        "start_price_usd": 64.0,
+        "end_price_usd": 0.0001,
+        "price_drop_pct": 99.9999,
+        "max_hourly_drop_pct": 50.0
+      },
+      "market_impact": {
+        "btc_drop_pct": 15.0,
+        "eth_drop_pct": 20.0,
+        "total_market_cap_loss_billion": 400.0,
+        "contagion_assets": ["UST", "LUNA", "ANC", "MIR"]
+      },
+      "liquidity_conditions": {
+        "dex_liquidity_drain_pct": 95.0,
+        "cex_withdrawal_halts": true,
+        "bid_ask_spread_multiplier": 50.0
+      },
+      "system_failures": {
+        "exchanges_halted_trading": true,
+        "oracle_failures": true,
+        "protocol_insolvencies": 1
+      },
+      "expected_system_behavior": {
+        "circuit_breaker_state": "LOCKDOWN",
+        "max_acceptable_drawdown_pct": 15.0,
+        "trades_halted": true,
+        "emergency_exit_triggered": true
+      }
+    },
+    {
+      "id": "ftx_collapse",
+      "name": "FTX Collapse",
+      "date": "2022-11-08",
+      "end_date": "2022-11-14",
+      "duration_days": 6,
+      "description": "FTX exchange insolvency led to market-wide panic and contagion",
+      "price_action": {
+        "asset": "FTT",
+        "start_price_usd": 22.0,
+        "end_price_usd": 1.5,
+        "price_drop_pct": 93.0,
+        "max_hourly_drop_pct": 30.0
+      },
+      "market_impact": {
+        "btc_drop_pct": 20.0,
+        "eth_drop_pct": 22.0,
+        "sol_drop_pct": 55.0,
+        "total_market_cap_loss_billion": 200.0,
+        "contagion_assets": ["FTT", "SOL", "SRM"]
+      },
+      "liquidity_conditions": {
+        "dex_liquidity_drain_pct": 60.0,
+        "cex_withdrawal_halts": true,
+        "bid_ask_spread_multiplier": 10.0
+      },
+      "system_failures": {
+        "exchanges_halted_trading": true,
+        "oracle_failures": false,
+        "protocol_insolvencies": 0
+      },
+      "expected_system_behavior": {
+        "circuit_breaker_state": "LOCKDOWN",
+        "max_acceptable_drawdown_pct": 15.0,
+        "trades_halted": true,
+        "sol_positions_evaluated": true
+      }
+    },
+    {
+      "id": "covid_crash",
+      "name": "March 2020 COVID Crash",
+      "date": "2020-03-12",
+      "end_date": "2020-03-13",
+      "duration_days": 2,
+      "description": "Global pandemic panic caused the fastest market crash in history",
+      "price_action": {
+        "asset": "BTC",
+        "start_price_usd": 7900.0,
+        "end_price_usd": 4800.0,
+        "price_drop_pct": 50.0,
+        "max_hourly_drop_pct": 15.0
+      },
+      "market_impact": {
+        "btc_drop_pct": 50.0,
+        "eth_drop_pct": 55.0,
+        "total_market_cap_loss_billion": 100.0,
+        "contagion_assets": ["BTC", "ETH", "XRP", "LTC"]
+      },
+      "liquidity_conditions": {
+        "dex_liquidity_drain_pct": 70.0,
+        "cex_withdrawal_halts": false,
+        "bid_ask_spread_multiplier": 8.0
+      },
+      "system_failures": {
+        "exchanges_halted_trading": false,
+        "oracle_failures": false,
+        "protocol_insolvencies": 0
+      },
+      "expected_system_behavior": {
+        "circuit_breaker_state": "LOCKDOWN",
+        "max_acceptable_drawdown_pct": 15.0,
+        "trades_halted": true,
+        "recovery_time_hours": 48
+      }
+    }
+  ],
+  "data_sources": [
+    "CoinGecko historical prices",
+    "TradingView charts",
+    "CryptoCompare historical data",
+    "On-chain analytics (Glassnode, Nansen)"
+  ],
+  "notes": "All data points are from real market events. Use for stress testing only."
+}
+
