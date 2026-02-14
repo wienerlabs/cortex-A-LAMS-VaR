@@ -51,6 +51,7 @@ app.add_middleware(
 )
 
 app.add_middleware(RateLimitMiddleware)
+app.add_middleware(RequestIDMiddleware)
 app.add_middleware(CacheEtagMiddleware)
 app.add_middleware(CacheDeleteMiddleware)
 
