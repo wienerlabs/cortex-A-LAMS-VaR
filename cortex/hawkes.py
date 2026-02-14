@@ -21,22 +21,49 @@ Mathematics:
 from __future__ import annotations
 
 import logging
+import math
 
 import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
 
+from cortex.config import HAWKES_ENGINE
+
 logger = logging.getLogger(__name__)
 
+# ── Optional accelerator imports ──────────────────────────────────────
 
-def _compute_intensity(
+_HAS_NUMBA = False
+try:
+    import numba
+    _HAS_NUMBA = True
+except ImportError:
+    logger.info("numba not installed — Hawkes JIT acceleration unavailable, using native")
+
+_HAS_TICK = False
+try:
+    from tick.hawkes import HawkesExpKern, SimuHawkesExpKernels
+    _HAS_TICK = True
+except ImportError:
+    logger.info("tick not installed — tick-based Hawkes estimation unavailable, using native")
+
+
+def _resolve_engine() -> str:
+    """Return the effective engine, falling back to native if requested engine is unavailable."""
+    engine = HAWKES_ENGINE.lower()
+    if engine == "numba" and not _HAS_NUMBA:
+        logger.warning("HAWKES_ENGINE=numba but numba not installed — falling back to native")
+        return "native"
+    if engine == "tick" and not _HAS_TICK:
+        logger.warning("HAWKES_ENGINE=tick but tick not installed — falling back to native")
+        return "native"
+    return engine
+
+
+def _compute_intensity_native(
     events: np.ndarray, params: tuple[float, float, float], t_eval: np.ndarray
 ) -> np.ndarray:
-    """Compute Hawkes intensity λ(t) at evaluation points.
-
-    Uses O((n+m)·log(n+m)) sorted-merge with recursive accumulator
-    instead of O(n·m) nested loop.
-    """
+    """Compute Hawkes intensity λ(t) — pure-Python/NumPy implementation."""
     mu, alpha, beta = params
     n_ev = len(events)
     n_pt = len(t_eval)
@@ -46,7 +73,6 @@ def _compute_intensity(
 
     intensity = np.empty(n_pt, dtype=float)
 
-    # Tag: 0 = event, 1 = eval point
     tags = np.concatenate([np.zeros(n_ev, dtype=np.int8), np.ones(n_pt, dtype=np.int8)])
     times = np.concatenate([events, t_eval])
     order = np.argsort(times, kind="mergesort")
@@ -60,13 +86,81 @@ def _compute_intensity(
         if dt > 0:
             A *= np.exp(-beta * dt)
             prev_t = t
-        if tags[idx] == 0:  # event
+        if tags[idx] == 0:
             A += 1.0
-        else:  # eval point
+        else:
             orig = idx - n_ev
             intensity[orig] = mu + alpha * A
 
     return intensity
+
+
+# ── Numba-accelerated inner loop ──────────────────────────────────────
+
+if _HAS_NUMBA:
+    @numba.jit(nopython=True, cache=True)
+    def _intensity_loop_numba(
+        times: np.ndarray,
+        tags: np.ndarray,
+        order: np.ndarray,
+        n_ev: int,
+        mu: float,
+        alpha: float,
+        beta: float,
+    ) -> np.ndarray:
+        """JIT-compiled inner loop for Hawkes intensity computation."""
+        n_total = len(order)
+        n_pt = len(times) - n_ev
+        intensity = np.empty(n_pt, dtype=np.float64)
+
+        A = 0.0
+        prev_t = times[order[0]]
+
+        for i in range(n_total):
+            idx = order[i]
+            t = times[idx]
+            dt = t - prev_t
+            if dt > 0.0:
+                A *= math.exp(-beta * dt)
+                prev_t = t
+            if tags[idx] == 0:
+                A += 1.0
+            else:
+                orig = idx - n_ev
+                intensity[orig] = mu + alpha * A
+
+        return intensity
+
+
+def _compute_intensity_numba(
+    events: np.ndarray, params: tuple[float, float, float], t_eval: np.ndarray
+) -> np.ndarray:
+    """Compute Hawkes intensity λ(t) — numba JIT-accelerated version."""
+    mu, alpha, beta = params
+    n_ev = len(events)
+    n_pt = len(t_eval)
+
+    if n_ev == 0:
+        return np.full(n_pt, mu, dtype=np.float64)
+
+    tags = np.concatenate([
+        np.zeros(n_ev, dtype=np.int8),
+        np.ones(n_pt, dtype=np.int8),
+    ])
+    times = np.concatenate([events.astype(np.float64), t_eval.astype(np.float64)])
+    order = np.argsort(times, kind="mergesort")
+
+    return _intensity_loop_numba(times, tags, order, n_ev, mu, alpha, beta)
+
+
+def _compute_intensity(
+    events: np.ndarray, params: tuple[float, float, float], t_eval: np.ndarray
+) -> np.ndarray:
+    """Compute Hawkes intensity λ(t) — dispatches to configured engine."""
+    engine = _resolve_engine()
+    if engine == "numba":
+        return _compute_intensity_numba(events, params, t_eval)
+    return _compute_intensity_native(events, params, t_eval)
 
 
 def _log_likelihood(params: np.ndarray, events: np.ndarray, T: float) -> float:
@@ -213,6 +307,58 @@ def fit_hawkes(
         "mu": float(mu),
         "alpha": float(alpha),
         "beta": float(beta),
+        "branching_ratio": float(branching_ratio),
+        "log_likelihood": float(ll),
+        "aic": float(2 * n_params - 2 * ll),
+        "bic": float(n_params * np.log(max(n, 1)) - 2 * ll),
+        "n_events": n,
+        "T": T,
+        "half_life": float(np.log(2) / beta),
+        "stationary": bool(branching_ratio < 1.0),
+    }
+
+
+def fit_hawkes_tick(
+    events: np.ndarray,
+    T: float,
+) -> dict:
+    """Fit Hawkes process using tick library's HawkesExpKern estimator.
+
+    Requires the ``tick`` package. Falls back to MLE-based ``fit_hawkes()``
+    if tick is unavailable.
+
+    Returns the same dict schema as ``fit_hawkes()`` for drop-in compatibility.
+    """
+    if not _HAS_TICK:
+        logger.warning("tick not installed — falling back to native MLE fit_hawkes()")
+        return fit_hawkes(events, T)
+
+    n = len(events)
+    if n < 5:
+        raise ValueError(f"Need ≥5 events for Hawkes fitting, got {n}")
+
+    events_sorted = np.sort(events)
+    timestamps = [events_sorted]
+
+    learner = HawkesExpKern(decays=1.0, penalty="none", max_iter=500, tol=1e-8)
+    learner.fit(timestamps, end_times=T)
+
+    mu = float(learner.baseline[0])
+    alpha = float(learner.adjacency[0, 0])
+    beta = 1.0  # tick uses fixed decay passed via `decays`
+
+    mu = max(mu, 1e-6)
+    alpha = max(alpha, 1e-6)
+    branching_ratio = alpha / beta
+
+    # Compute log-likelihood using our own function for consistency
+    ll = -_log_likelihood(np.array([mu, alpha, beta]), events_sorted, T)
+    n_params = 3
+
+    return {
+        "mu": mu,
+        "alpha": alpha,
+        "beta": beta,
         "branching_ratio": float(branching_ratio),
         "log_likelihood": float(ll),
         "aic": float(2 * n_params - 2 * ll),
@@ -432,6 +578,54 @@ def simulate_hawkes(
     return {
         "event_times": events_arr,
         "n_events": len(event_times),
+        "T": T,
+        "intensity_t": t_sample.tolist(),
+        "intensity_path": intensity_path.tolist(),
+    }
+
+
+def simulate_hawkes_tick(
+    params: dict,
+    T: float,
+    seed: int = 42,
+) -> dict:
+    """Simulate Hawkes process using tick library's SimuHawkesExpKernels.
+
+    Requires the ``tick`` package. Falls back to Ogata thinning via
+    ``simulate_hawkes()`` if tick is unavailable.
+
+    Returns the same dict schema as ``simulate_hawkes()``.
+    """
+    if not _HAS_TICK:
+        logger.warning("tick not installed — falling back to native simulate_hawkes()")
+        return simulate_hawkes(params, T, seed)
+
+    mu, alpha, beta = params["mu"], params["alpha"], params["beta"]
+
+    baseline = np.array([mu])
+    adjacency = np.array([[alpha]])
+    decays = np.array([[beta]])
+
+    sim = SimuHawkesExpKernels(
+        adjacency=adjacency,
+        decays=decays,
+        baseline=baseline,
+        end_time=T,
+        seed=seed,
+        verbose=False,
+    )
+    sim.simulate()
+
+    event_times = sim.timestamps[0] if len(sim.timestamps) > 0 else np.array([])
+    events_arr = np.asarray(event_times, dtype=np.float64)
+
+    n_sample = min(500, max(100, int(T)))
+    t_sample = np.linspace(0, T, n_sample)
+    intensity_path = _compute_intensity(events_arr, (mu, alpha, beta), t_sample)
+
+    return {
+        "event_times": events_arr,
+        "n_events": len(events_arr),
         "T": T,
         "intensity_t": t_sample.tolist(),
         "intensity_path": intensity_path.tolist(),
