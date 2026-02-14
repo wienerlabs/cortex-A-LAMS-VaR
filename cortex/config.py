@@ -199,6 +199,12 @@ REDIS_URL = os.environ.get("REDIS_URL", "")
 CACHE_ENABLED = os.environ.get("CACHE_ENABLED", "true").lower() == "true"
 CACHE_DEFAULT_TTL = int(os.environ.get("CACHE_DEFAULT_TTL", "300"))
 
+# ── Model Persistence (Redis) ──
+
+PERSISTENCE_ENABLED = os.environ.get("PERSISTENCE_ENABLED", "true").lower() == "true"
+PERSISTENCE_REDIS_URL = os.environ.get("PERSISTENCE_REDIS_URL", os.environ.get("REDIS_URL", ""))
+PERSISTENCE_KEY_PREFIX = os.environ.get("PERSISTENCE_KEY_PREFIX", "cortex:store:")
+
 # ── Hawkes Engine ──
 
 HAWKES_ENGINE = os.environ.get("HAWKES_ENGINE", "numba")  # "native", "numba", "tick"

@@ -1,4 +1,4 @@
-"""Shared in-memory stores and helpers used across route modules."""
+"""Shared persistent stores and helpers used across route modules."""
 
 import logging
 
@@ -7,20 +7,26 @@ import pandas as pd
 from fastapi import HTTPException
 
 from api.models import CalibrateRequest
+from cortex.persistence import PersistentStore
 
 logger = logging.getLogger(__name__)
 
-# In-memory model state (per-token)
-_model_store: dict[str, dict] = {}
-_portfolio_store: dict[str, dict] = {}
-_evt_store: dict[str, dict] = {}
-_copula_store: dict[str, dict] = {}
-_hawkes_store: dict[str, dict] = {}
-_rough_store: dict[str, dict] = {}
-_svj_store: dict[str, dict] = {}
+# Persistent model state (per-token) — backed by Redis when available
+_model_store: PersistentStore = PersistentStore("model")
+_portfolio_store: PersistentStore = PersistentStore("portfolio")
+_evt_store: PersistentStore = PersistentStore("evt")
+_copula_store: PersistentStore = PersistentStore("copula")
+_hawkes_store: PersistentStore = PersistentStore("hawkes")
+_rough_store: PersistentStore = PersistentStore("rough")
+_svj_store: PersistentStore = PersistentStore("svj")
 
-# Cache comparison results per token for the report endpoint
+# Comparison cache is ephemeral — no need to persist
 _comparison_cache: dict[str, tuple[pd.DataFrame, float]] = {}
+
+ALL_STORES: list[PersistentStore] = [
+    _model_store, _portfolio_store, _evt_store, _copula_store,
+    _hawkes_store, _rough_store, _svj_store,
+]
 
 _PORTFOLIO_KEY = "default"
 
