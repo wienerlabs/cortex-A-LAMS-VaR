@@ -5,8 +5,11 @@ os.environ["TESTING"] = "1"
 import numpy as np
 import pandas as pd
 import pytest
+from cashews import cache as _cashews_cache
 
 from cortex import msm
+
+_cashews_cache.setup("mem://")
 
 
 @pytest.fixture(scope="session")

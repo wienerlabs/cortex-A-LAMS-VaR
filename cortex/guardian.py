@@ -40,7 +40,37 @@ logger = logging.getLogger(__name__)
 
 WEIGHTS = GUARDIAN_WEIGHTS
 
-_cache: dict[str, dict[str, Any]] = {}
+
+class _TTLCache:
+    """Simple TTL cache compatible with cashews patterns.
+
+    Provides dict-like .clear() for test backward compat while
+    auto-expiring entries after CACHE_TTL_SECONDS.
+    """
+
+    def __init__(self) -> None:
+        self._store: dict[str, dict[str, Any]] = {}
+
+    def get(self, key: str) -> dict | None:
+        entry = self._store.get(key)
+        if entry is None:
+            return None
+        if (time.time() - entry["ts"]) >= CACHE_TTL_SECONDS:
+            del self._store[key]
+            return None
+        return entry["result"]
+
+    def set(self, key: str, result: dict) -> None:
+        self._store[key] = {"ts": time.time(), "result": result}
+
+    def clear(self) -> None:
+        self._store.clear()
+
+    def __contains__(self, key: str) -> bool:
+        return self.get(key) is not None
+
+
+_cache = _TTLCache()
 _trade_history: deque[dict] = deque(maxlen=500)
 
 
@@ -293,8 +323,9 @@ def assess_trade(
     cache_key = f"{token}:{direction}"
     now = time.time()
 
-    if cache_key in _cache and (now - _cache[cache_key]["ts"]) < CACHE_TTL_SECONDS:
-        cached = _cache[cache_key]["result"].copy()
+    cached_result = _cache.get(cache_key)
+    if cached_result is not None:
+        cached = cached_result.copy()
         cached["from_cache"] = True
         return cached
 
@@ -431,6 +462,6 @@ def assess_trade(
         risk_score, veto_reasons, current_regime, confidence,
     )
 
-    _cache[cache_key] = {"ts": now, "result": result}
+    _cache.set(cache_key, result)
     return result
 
