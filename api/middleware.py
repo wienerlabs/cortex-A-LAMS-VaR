@@ -1,10 +1,12 @@
-"""API security middleware: authentication, rate limiting, CORS configuration."""
+"""API security middleware: authentication, rate limiting, request ID, CORS."""
 
 import logging
 import os
 import time
+import uuid
 from collections import defaultdict
 
+import structlog.contextvars
 from fastapi import HTTPException, Request, Security
 from fastapi.security import APIKeyHeader
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -105,6 +107,28 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         response.headers["X-RateLimit-Limit"] = str(limit)
         response.headers["X-RateLimit-Remaining"] = str(limit - len(self._buckets[key]))
         return response
+
+
+# ── Request ID ─────────────────────────────────────────────────────
+
+
+class RequestIDMiddleware(BaseHTTPMiddleware):
+    """Attach a unique request ID to every request.
+
+    - Generates a UUID4 per request (or reuses incoming X-Request-ID header)
+    - Binds it to structlog context vars so all log lines include request_id
+    - Sets X-Request-ID on the response for client correlation
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
+        structlog.contextvars.bind_contextvars(request_id=request_id)
+        try:
+            response = await call_next(request)
+            response.headers["X-Request-ID"] = request_id
+            return response
+        finally:
+            structlog.contextvars.clear_contextvars()
 
 
 # ── CORS Configuration ──────────────────────────────────────────────
