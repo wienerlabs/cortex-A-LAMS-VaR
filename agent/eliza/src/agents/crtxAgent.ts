@@ -105,11 +105,11 @@ export interface AgentConfig {
 }
 
 const DEFAULT_CONFIG: AgentConfig = {
-  portfolioValueUsd: 100,  // $100 capital for testing
-  minConfidence: -10.0,  // TESTING: Accept ANY ML prediction (even negative!)
-  minRiskAdjustedReturn: 1.0,  // 1% min
-  dryRun: false,  // LIVE TRADING ENABLED
-  volatility24h: undefined,  // Will be fetched dynamically
+  portfolioValueUsd: parseFloat(process.env.PORTFOLIO_VALUE_USD || '100'),
+  minConfidence: 0.60,
+  minRiskAdjustedReturn: 1.0,
+  dryRun: false,
+  volatility24h: undefined,
   solanaPrivateKey: process.env.SOLANA_PRIVATE_KEY,
   solanaRpcUrl: process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
 };
@@ -192,7 +192,7 @@ export class CRTXAgent {
   private performanceTracker = getPerformanceTracker();
   private bullishResearcher = getBullishResearcher();
   private bearishResearcher = getBearishResearcher();
-  private consensusEnabled = true;  // Can be disabled for testing
+  private consensusEnabled = true;
 
   constructor(config: Partial<AgentConfig> = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -438,7 +438,7 @@ export class CRTXAgent {
       this.lpExecutor = new LPExecutor({
         rpcUrl: this.config.solanaRpcUrl || 'https://api.mainnet-beta.solana.com',
         maxPriceImpactPct: 1.0,  // Max 1% price impact
-        defaultSlippageBps: 500, // 3% (increased for mainnet testing)
+        defaultSlippageBps: 300, // 3% slippage
         priorityFeeLamports: 50000,
       });
       logger.info('[CRTX] LP Executor initialized');
@@ -860,11 +860,15 @@ export class CRTXAgent {
     }
 
     // 0.5. Initialize Perps Service (for funding rate scanning and perps execution)
-    // DISABLED: WebSocket errors with Drift SDK - focusing on LP instead
-    // if (!this.perpsServiceInitialized) {
-    //   await this.initializePerpsService();
-    //   this.perpsServiceInitialized = true;
-    // }
+    if (!this.perpsServiceInitialized) {
+      try {
+        await this.initializePerpsService();
+        this.perpsServiceInitialized = true;
+        console.log('[CRTX] ✅ Perps service initialized');
+      } catch (error: any) {
+        console.warn('[CRTX] ⚠️  Perps init failed, skipping perps strategies:', error.message);
+      }
+    }
 
     // 1. Scan markets
     const snapshot = await scanMarkets({ minArbitrageSpread: 0.1 });
@@ -1502,9 +1506,9 @@ export class CRTXAgent {
     console.log('\n[CRTX] 🧠 Evaluating opportunities with EARLY EXECUTION mode...');
 
     // ============================================================
-    // PRIORITY 1: SPOT TRADING (Jupiter swap - WORKS!)
+    // PRIORITY 1: SPOT TRADING (Jupiter swap)
     // ============================================================
-    /*if (snapshot.spotTokens && snapshot.spotTokens.length > 0) {
+    if (snapshot.spotTokens && snapshot.spotTokens.length > 0) {
       console.log(`\n[AGENT] 💱 PRIORITY 1: Evaluating ${snapshot.spotTokens.length} spot trading opportunities...`);
 
       await this.spotAnalyst.initialize();
@@ -1572,12 +1576,12 @@ export class CRTXAgent {
       }
 
       console.log(`[AGENT] No approved spot trading opportunities found`);
-    }*/
+    }
 
     // ============================================================
-    // PRIORITY 1: LENDING (Testing Lending execution)
+    // PRIORITY 2: LENDING
     // ============================================================
-    /*if (snapshot.lendingMarkets && snapshot.lendingMarkets.length > 0) {
+    if (snapshot.lendingMarkets && snapshot.lendingMarkets.length > 0) {
       console.log(`\n[AGENT] 🏦 PRIORITY 1: Evaluating ${snapshot.lendingMarkets.length} lending opportunities...`);
 
       await this.lendingAnalyst.initialize();
@@ -1618,19 +1622,19 @@ export class CRTXAgent {
       }
 
       console.log(`[AGENT] No approved lending opportunities found`);
-    }*/
+    }
 
     // ============================================================
-    // PRIORITY 1B: LP POOLS (Testing LP execution) - DISABLED FOR LENDING TESTING
+    // PRIORITY 3: LP POOLS
     // ============================================================
-    if (false && snapshot.lpPools.length > 0) {
+    if (snapshot.lpPools.length > 0) {
       console.log(`\n[AGENT] 💧 Evaluating ${snapshot.lpPools.length} LP pools...`);
 
       // Pre-filter pools with scam filters
       const ALLOWED_TOKENS = ['SOL', 'USDC', 'USDT', 'JUP', 'BONK', 'mSOL', 'stSOL', 'jitoSOL', 'RAY', 'ORCA'];
       const MAX_APY = 500;
-      const MIN_TVL = 50_000;  // Lowered to $50K for mainnet testing
-      const MIN_VOLUME_TVL = 0.1;  // Lowered for mainnet testing
+      const MIN_TVL = 100_000;
+      const MIN_VOLUME_TVL = 0.3;
 
       const eligiblePools = snapshot.lpPools.filter(pool => {
         if (pool.apy > MAX_APY) return false;
@@ -1694,7 +1698,7 @@ export class CRTXAgent {
             logLPEvaluation(pool, result.approved, result.rejectReason, result.riskAdjustedReturn, riskLabel);
 
             // Check if it meets minimum thresholds
-            if (result.expectedReturn >= 3) { // 3% APY minimum (lowered for testing)
+            if (result.expectedReturn >= 5) {
               console.log(`\n[CRTX] ✅ Opportunity found: ${result.type.toUpperCase()} ${result.name}`);
               console.log(`  💭 "First approved opportunity - executing immediately!"`);
               console.log(`  📊 APY: ${result.expectedReturn.toFixed(2)}% | Risk: ${riskLabel}`);
@@ -1844,16 +1848,15 @@ export class CRTXAgent {
     // Calculate risk-adjusted return
     const riskAdjustedReturn = perp.expectedReturnPct * (1 - perp.riskScore / 20);
 
-    // Rejection reasons - THRESHOLDS LOWERED FOR MAINNET TESTING
     let rejectReason: string | undefined;
     if (!riskCheck.allowed) {
       rejectReason = riskCheck.reason;
-    } else if (fundingBps < 1) {
-      rejectReason = `Funding too low: ${fundingBps.toFixed(1)}bps (min 1bps)`;
-    } else if (perp.openInterest < 100_000) {
-      rejectReason = `OI too low: $${(perp.openInterest / 1_000).toFixed(0)}K (min $100K)`;
-    } else if (confidence < 0.05) {  // Lowered from minConfidence to 5%
-      rejectReason = `Confidence too low: ${(confidence * 100).toFixed(0)}% (min 5%)`;
+    } else if (fundingBps < 3) {
+      rejectReason = `Funding too low: ${fundingBps.toFixed(1)}bps (min 3bps)`;
+    } else if (perp.openInterest < 500_000) {
+      rejectReason = `OI too low: $${(perp.openInterest / 1_000).toFixed(0)}K (min $500K)`;
+    } else if (confidence < this.config.minConfidence) {
+      rejectReason = `Confidence too low: ${(confidence * 100).toFixed(0)}% (min ${(this.config.minConfidence * 100).toFixed(0)}%)`;
     }
 
     const approved = !rejectReason && riskCheck.allowed && confidence >= this.config.minConfidence;
@@ -2225,17 +2228,25 @@ export class CRTXAgent {
   private buildResearchInput(opp: EvaluatedOpportunity): ResearchInput {
     const asset = this.extractAssetFromOpportunity(opp);
 
+    // Extract real price from opportunity raw data
+    let currentPrice = 0;
+    if (opp.raw) {
+      if (typeof opp.raw.price === 'number') currentPrice = opp.raw.price;
+      else if (typeof opp.raw.buyPrice === 'number') currentPrice = opp.raw.buyPrice;
+      else if (typeof opp.raw.sellPrice === 'number') currentPrice = opp.raw.sellPrice;
+      else if (opp.raw.token?.marketData?.price) currentPrice = opp.raw.token.marketData.price;
+    }
+
     return {
       asset,
-      // These would be populated from actual analyst results in a full implementation
       fundamentals: undefined,
       sentiment: undefined,
       news: undefined,
       priceData: {
-        currentPrice: 100,  // Placeholder
-        change24h: opp.expectedReturn / 10,  // Rough estimate
+        currentPrice,
+        change24h: opp.expectedReturn / 10,
         change7d: 0,
-        volume24h: 1000000,
+        volume24h: opp.raw?.volume24h || 0,
       },
     };
   }
@@ -2270,16 +2281,14 @@ export class CRTXAgent {
       return;
     }
 
-    // EARLY EXECUTION MODE: Skip consensus validation for immediate trade execution
-    // Approved opportunities execute directly without multi-agent voting
     const positionUsd = positionCalc.positionPct * this.portfolioManager.getTotalValueUsd();
-    console.log(`[AGENT] ⚡ Early execution mode - executing immediately (position: $${positionUsd.toFixed(2)})`);
-    // NOTE: Consensus validation disabled for faster mainnet testing
-    // const consensusCheck = await this.validateWithConsensus(opp, positionUsd);
-    // if (!consensusCheck.passed) {
-    //   console.log(`[AGENT] ❌ BLOCKED by Consensus: Trade rejected by multi-agent voting`);
-    //   return;
-    // }
+    console.log(`[AGENT] 🗳️  Running consensus validation (position: $${positionUsd.toFixed(2)})...`);
+    const consensusCheck = await this.validateWithConsensus(opp, positionUsd);
+    if (!consensusCheck.passed) {
+      console.log(`[AGENT] ❌ BLOCKED by Consensus: Trade rejected by multi-agent voting`);
+      return;
+    }
+    console.log(`[AGENT] ✅ Consensus passed`);
 
     // Check if we have sufficient capital
     const portfolioValue = this.portfolioManager.getTotalValueUsd();
@@ -2667,69 +2676,6 @@ export class CRTXAgent {
         });
 
         this.riskManager.recordTrade(0.5); // Positive outcome for successful deposit
-
-        // ========== TEST ALL LENDING OPERATIONS ==========
-        // Correct sequence: DEPOSIT → WITHDRAW → BORROW → REPAY
-        console.log(`\n[AGENT] 🧪 Testing all lending operations in sequence...`);
-
-        // Run tests sequentially (not in parallel with setTimeout)
-        (async () => {
-          try {
-            // Wait for deposit to fully settle
-            await new Promise(resolve => setTimeout(resolve, 3000));
-
-            // Step 1: WITHDRAW (no borrow yet, should succeed)
-            console.log(`[AGENT] 🔄 Step 1: Testing WITHDRAW...`);
-            const withdrawResult = await this.lendingExecutor!.withdraw({
-              protocol: market.protocol as 'kamino' | 'marginfi' | 'solend',
-              asset: market.asset,
-              amountUsd: depositUsd * 0.5, // Withdraw 50%
-            });
-            if (withdrawResult.success) {
-              console.log(`[AGENT] ✅ WITHDRAW successful: ${withdrawResult.signature}`);
-            } else {
-              console.log(`[AGENT] ❌ WITHDRAW failed: ${withdrawResult.error}`);
-            }
-
-            // Wait for withdraw to settle
-            await new Promise(resolve => setTimeout(resolve, 3000));
-
-            // Step 2: BORROW (use remaining deposit as collateral)
-            console.log(`[AGENT] 🔄 Step 2: Testing BORROW...`);
-            if (market.protocol === 'kamino' && (this.lendingExecutor as any).kaminoClient) {
-              const borrowResult = await (this.lendingExecutor as any).kaminoClient.borrow({
-                asset: market.asset,
-                amount: 0.05, // Small test amount
-              });
-              if (borrowResult.success) {
-                console.log(`[AGENT] ✅ BORROW successful: ${borrowResult.signature}`);
-              } else {
-                console.log(`[AGENT] ❌ BORROW failed: ${borrowResult.error}`);
-                return; // Don't try to repay if borrow failed
-              }
-
-              // Wait for borrow to settle
-              await new Promise(resolve => setTimeout(resolve, 3000));
-
-              // Step 3: REPAY (pay back the loan)
-              console.log(`[AGENT] 🔄 Step 3: Testing REPAY...`);
-              const repayResult = await (this.lendingExecutor as any).kaminoClient.repay({
-                asset: market.asset,
-                amount: 0.05, // Same amount as borrowed
-              });
-              if (repayResult.success) {
-                console.log(`[AGENT] ✅ REPAY successful: ${repayResult.signature}`);
-              } else {
-                console.log(`[AGENT] ❌ REPAY failed: ${repayResult.error}`);
-              }
-            }
-
-            console.log(`[AGENT] ✅ All lending operation tests completed!`);
-          } catch (error) {
-            console.log(`[AGENT] ❌ Lending test sequence error: ${error}`);
-          }
-        })();
-        // ========================================
 
       } else {
         console.log(`[AGENT] ❌ Deposit failed: ${result.error}`);
