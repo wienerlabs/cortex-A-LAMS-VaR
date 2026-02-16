@@ -79,6 +79,11 @@ function buildEndpoints(): EndpointState[] {
     result.push(makeEndpoint(secondary));
   }
 
+  const jito = process.env.JITO_RPC_URL;
+  if (jito && !result.some(e => e.url === jito)) {
+    result.push(makeEndpoint(jito));
+  }
+
   if (!result.some(e => e.url === PUBLIC_ENDPOINT)) {
     result.push(makeEndpoint(PUBLIC_ENDPOINT));
   }
@@ -321,6 +326,11 @@ function buildWsEndpoints(): WsEndpoint[] {
     || (process.env.SOLANA_RPC_URL_SECONDARY ? httpToWss(process.env.SOLANA_RPC_URL_SECONDARY) : '');
   if (secondary) {
     result.push({ url: secondary, failCount: 0 });
+  }
+
+  const jitoWs = process.env.JITO_RPC_URL ? httpToWss(process.env.JITO_RPC_URL) : '';
+  if (jitoWs && !result.some(e => e.url === jitoWs)) {
+    result.push({ url: jitoWs, failCount: 0 });
   }
 
   if (!result.some(e => e.url === PUBLIC_WS_ENDPOINT)) {
