@@ -17,9 +17,11 @@
  */
 
 import 'dotenv/config';
+import { createServer } from 'node:http';
 import { CRTXAgent } from './agents/crtxAgent.js';
 import { logger } from './services/logger.js';
 import { validateAgentConfig } from './config/production.js';
+import { getHealthMetrics, resetHealthMetrics } from './services/solana/connection.js';
 
 async function main() {
   logger.info('\n╔═══════════════════════════════════════════════════════════╗');
@@ -74,17 +76,35 @@ async function main() {
     // Start Lending position monitoring
     agent.startLendingMonitoring();
 
+    // Start lightweight health monitoring server
+    const healthPort = parseInt(process.env.HEALTH_PORT || '9090', 10);
+    const healthServer = createServer((req, res) => {
+      if (req.method === 'GET' && req.url === '/health/rpc') {
+        const report = getHealthMetrics();
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(report));
+        return;
+      }
+      if (req.method === 'POST' && req.url === '/health/rpc/reset') {
+        resetHealthMetrics();
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
+        return;
+      }
+      res.writeHead(404);
+      res.end();
+    });
+    healthServer.listen(healthPort, () => {
+      logger.info(`[Health] RPC health endpoint at http://localhost:${healthPort}/health/rpc`);
+    });
+
     // Handle graceful shutdown
     process.on('SIGINT', () => {
       logger.info('\n\n🛑 Shutting down gracefully...');
+      healthServer.close();
 
-      // Stop LP monitoring
       agent.stopLPMonitoring();
-
-      // Stop Spot monitoring
       agent.stopSpotMonitoring();
-
-      // Stop Lending monitoring
       agent.stopLendingMonitoring();
 
       const state = agent.getRiskState();

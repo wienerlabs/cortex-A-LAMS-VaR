@@ -9,6 +9,15 @@ import type { AgentConfig } from "../types.js";
 const mockFetch = vi.fn();
 global.fetch = mockFetch;
 
+// Helper: mock a successful SOL price response (Jupiter price API)
+function mockSolPriceResponse(price: number = 200) {
+  mockFetch.mockResolvedValueOnce({
+    json: async () => ({
+      data: { [KNOWN_TOKENS.SOL.toBase58()]: { price } },
+    }),
+  });
+}
+
 // Generate a valid test keypair
 const testKeypair = Keypair.generate();
 const TEST_PRIVATE_KEY = bs58.encode(testKeypair.secretKey);
@@ -123,18 +132,20 @@ describe("CortexSolanaAgent", () => {
   describe("swap validation", () => {
     it("should reject swaps exceeding max trade amount", async () => {
       agent.updateLimits({ maxTradeAmountUsd: 100 });
+      mockSolPriceResponse(200);
 
       await expect(
         agent.swap({
           inputMint: KNOWN_TOKENS.SOL,
           outputMint: KNOWN_TOKENS.USDC,
-          amountIn: 10, // 10 SOL = $2000 at $200/SOL estimate
+          amountIn: 10, // 10 SOL = $2000 at $200/SOL
         })
       ).rejects.toThrow("exceeds max trade limit");
     });
 
     it("should reject disallowed actions", async () => {
       agent.updateLimits({ allowedActions: ["stake"] });
+      mockSolPriceResponse(200);
 
       await expect(
         agent.swap({
@@ -146,17 +157,17 @@ describe("CortexSolanaAgent", () => {
     });
 
     it("should reject swaps exceeding daily limit", async () => {
-      // First swap consumes daily limit
       agent.updateLimits({
         maxTradeAmountUsd: 10000,
         dailyTradeLimitUsd: 100
       });
+      mockSolPriceResponse(200);
 
       await expect(
         agent.swap({
           inputMint: KNOWN_TOKENS.SOL,
           outputMint: KNOWN_TOKENS.USDC,
-          amountIn: 1, // 1 SOL = $200 at estimate, exceeds $100 daily
+          amountIn: 1, // 1 SOL = $200, exceeds $100 daily
         })
       ).rejects.toThrow("exceed daily limit");
     });
@@ -177,6 +188,7 @@ describe("CortexSolanaAgent", () => {
   describe("stake validation", () => {
     it("should reject stake if not allowed", async () => {
       agent.updateLimits({ allowedActions: ["swap"] });
+      mockSolPriceResponse(200);
 
       await expect(agent.stakeSOL(1)).rejects.toThrow(
         'Action "stake" is not allowed'
@@ -185,6 +197,7 @@ describe("CortexSolanaAgent", () => {
 
     it("should reject stake exceeding max trade amount", async () => {
       agent.updateLimits({ maxTradeAmountUsd: 100 });
+      mockSolPriceResponse(200);
 
       await expect(agent.stakeSOL(10)).rejects.toThrow("exceeds max trade limit");
     });

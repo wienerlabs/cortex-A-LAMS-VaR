@@ -170,6 +170,18 @@ interface BinanceDepositAddressResponse {
   url: string;
 }
 
+interface BinanceDepositRecord {
+  id: string;
+  amount: string;
+  coin: string;
+  network: string;
+  status: number; // 0=pending, 6=credited, 1=confirmed/success
+  address: string;
+  txId: string;
+  insertTime: number;
+  confirmTimes: string;
+}
+
 async function binanceGetDepositAddress(
   config: ArbitrageConfig,
   coin: string,
@@ -196,6 +208,34 @@ async function binanceGetDepositAddress(
   }
 
   return response.json() as Promise<BinanceDepositAddressResponse>;
+}
+
+async function binanceGetDepositHistory(
+  config: ArbitrageConfig,
+  coin: string,
+  startTime: number,
+): Promise<BinanceDepositRecord[]> {
+  const params: Record<string, string | number> = {
+    coin,
+    startTime,
+    timestamp: Date.now(),
+    recvWindow: 5000,
+  };
+
+  const signedQuery = signBinanceRequest(params, config.binanceSecretKey);
+  const url = `${BINANCE_API}/sapi/v1/capital/deposit/hisrec?${signedQuery}`;
+
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: { 'X-MBX-APIKEY': config.binanceApiKey },
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`Binance deposit history failed: ${error}`);
+  }
+
+  return response.json() as Promise<BinanceDepositRecord[]>;
 }
 
 // ============= TOKEN CONFIG =============
@@ -454,7 +494,7 @@ export class ArbitrageExecutor {
         executedQty
       );
       result.txHashes.withdrawal = withdrawal.id;
-      result.fees.withdrawal = this.getWithdrawalFee(symbol);
+      result.fees.withdrawal = await this.getWithdrawalFee(symbol);
 
       logger.info(`[ARBITRAGE] Withdrawal initiated: ${withdrawal.id}`);
 
@@ -524,7 +564,7 @@ export class ArbitrageExecutor {
 
     // Estimate fees with dynamic pricing
     const cexTradeFee = amountUsd * 0.001; // 0.1% Binance
-    const withdrawalFee = this.getWithdrawalFee(opp.symbol);
+    const withdrawalFee = await this.getWithdrawalFee(opp.symbol);
     const dexSwapFee = amountUsd * 0.003; // 0.3% Jupiter
     const gasFee = DEFAULT_GAS_SOL * solPrice; // Dynamic: 0.002 SOL * live price
 
@@ -1058,14 +1098,14 @@ export class ArbitrageExecutor {
 
   // ============= HELPERS =============
 
-  private getWithdrawalFee(symbol: string): number {
-    // Binance withdrawal fees (in token units, converted to USD estimate)
+  private async getWithdrawalFee(symbol: string): Promise<number> {
+    const solPrice = await getSolPrice();
     const fees: Record<string, number> = {
-      SOL: 0.01 * 200,   // 0.01 SOL
-      BONK: 0,           // Free for SPL tokens
+      SOL: 0.01 * solPrice,  // 0.01 SOL at live price
+      BONK: 0,
       JUP: 0,
       WIF: 0,
-      USDC: 1,           // $1 flat
+      USDC: 1,
     };
     return fees[symbol] || 1;
   }
@@ -1283,15 +1323,39 @@ export class ArbitrageExecutor {
   }
 
   private async waitForBinanceDeposit(symbol: string, expectedAmount: number): Promise<void> {
-    // In production: poll Binance deposit history until deposit arrives
-    // For now, just wait fixed time (deposits typically take 10-30 min)
-    const waitTime = Math.min(this.config.maxWithdrawWaitMs, 1800000); // Max 30 min
-    logger.info(`[ARBITRAGE] Waiting ${waitTime / 60000} minutes for Binance deposit...`);
-    await new Promise(resolve => setTimeout(resolve, waitTime));
+    const pollIntervalMs = 10_000;
+    const timeoutMs = parseInt(process.env.CEX_DEPOSIT_TIMEOUT_MS || '600000', 10);
+    const startTime = Date.now();
+    const tolerance = 0.01; // 1% tolerance for amount matching
 
-    // TODO: In production, poll Binance deposit history:
-    // GET /sapi/v1/capital/deposit/hisrec
-    // Check for deposit with matching coin and amount
+    logger.info(`[ARBITRAGE] Polling Binance deposit history for ${expectedAmount} ${symbol} (timeout: ${timeoutMs / 1000}s)`);
+
+    while (Date.now() - startTime < timeoutMs) {
+      try {
+        const deposits = await binanceGetDepositHistory(this.config, symbol, startTime);
+
+        for (const deposit of deposits) {
+          const depositAmount = parseFloat(deposit.amount);
+          const amountDiff = Math.abs(depositAmount - expectedAmount) / expectedAmount;
+
+          if (amountDiff <= tolerance && deposit.status === 1) {
+            logger.info(`[ARBITRAGE] ✅ Deposit confirmed: ${deposit.amount} ${symbol} (txId: ${deposit.txId})`);
+            return;
+          }
+
+          if (amountDiff <= tolerance && deposit.status !== 1) {
+            logger.info(`[ARBITRAGE] ⏳ Deposit found but pending (status: ${deposit.status}, confirmTimes: ${deposit.confirmTimes})`);
+          }
+        }
+      } catch (error) {
+        // API failures during polling should retry, not abort
+        logger.warn(`[ARBITRAGE] Deposit poll API error (will retry): ${error instanceof Error ? error.message : String(error)}`);
+      }
+
+      await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
+    }
+
+    throw new Error(`Binance deposit timeout: ${symbol} deposit not confirmed after ${timeoutMs / 1000}s`);
   }
 
   private errorResult(

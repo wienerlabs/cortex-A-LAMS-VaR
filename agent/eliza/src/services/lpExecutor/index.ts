@@ -250,6 +250,17 @@ export class LPExecutor {
   }
 
   /**
+   * Resolve the actual Whirlpool PDA address for an Orca pool.
+   * DexScreener returns pair addresses that differ from on-chain Whirlpool PDAs.
+   * Returns the resolved address or null if resolution fails.
+   */
+  async resolveOrcaWhirlpoolAddress(tokenMintA: string, tokenMintB: string): Promise<string | null> {
+    const orcaExecutor = this.executors.get('orca') as OrcaExecutor | undefined;
+    if (!orcaExecutor) return null;
+    return orcaExecutor.resolveWhirlpoolAddress(tokenMintA, tokenMintB);
+  }
+
+  /**
    * Check if a DEX is supported
    */
   isSupported(dex: string): boolean {

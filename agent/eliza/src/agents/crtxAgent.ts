@@ -1010,7 +1010,7 @@ export class CRTXAgent {
 
     // ===== ML-ENHANCED LP POOL EVALUATION =====
     // Pre-filter pools with scam filters BEFORE fetching ML features (saves API calls)
-    const ALLOWED_TOKENS = ['SOL', 'USDC', 'USDT', 'JUP', 'BONK', 'mSOL', 'stSOL', 'jitoSOL', 'RAY', 'ORCA'];
+    const ALLOWED_TOKENS = ['SOL', 'USDC', 'USDT', 'JUP', 'BONK', 'MSOL', 'STSOL', 'JITOSOL', 'RAY', 'ORCA'];
     const MAX_APY = 500;        // Production threshold - filters unrealistic APY pools
     const MIN_TVL = 300_000;    // Lowered to $300k - smaller pools can be legitimate on Solana
     const MIN_VOLUME_TVL = 0.3;
@@ -1638,7 +1638,7 @@ export class CRTXAgent {
       console.log(`\n[AGENT] 💧 Evaluating ${snapshot.lpPools.length} LP pools...`);
 
       // Pre-filter pools with scam filters
-      const ALLOWED_TOKENS = ['SOL', 'USDC', 'USDT', 'JUP', 'BONK', 'mSOL', 'stSOL', 'jitoSOL', 'RAY', 'ORCA'];
+      const ALLOWED_TOKENS = ['SOL', 'USDC', 'USDT', 'JUP', 'BONK', 'MSOL', 'STSOL', 'JITOSOL', 'RAY', 'ORCA'];
       const MAX_APY = 500;
       const MIN_TVL = 100_000;
       const MIN_VOLUME_TVL = 0.3;
@@ -1655,13 +1655,6 @@ export class CRTXAgent {
         const dex = pool.dex.toLowerCase();
         if (dex.includes('raydium') || dex.includes('ray')) {
           console.log(`[AGENT] ❌ Rejecting ${pool.dex} pool ${pool.name} (CLMM too complex)`);
-          return false;
-        }
-
-        // Reject Orca pools from DexScreener (address mismatch - DexScreener returns pair addresses, not Whirlpool addresses)
-        // TODO: Re-enable when we can fetch actual Whirlpool addresses from Orca API
-        if (dex.includes('orca') && pool.address) {
-          console.log(`[AGENT] ❌ Rejecting ${pool.dex} pool ${pool.name} (DexScreener address incompatible with Orca SDK)`);
           return false;
         }
 
@@ -2391,8 +2384,23 @@ export class CRTXAgent {
     const token0Decimals = stableTokens.includes(token0Symbol) ? 6 : 9;
     const token1Decimals = stableTokens.includes(token1Symbol) ? 6 : 9;
 
+    // For Orca pools, resolve the actual Whirlpool PDA address from token mints.
+    // DexScreener returns pair addresses that don't work with the Orca SDK.
+    let resolvedAddress = pool.address;
+    const isOrca = pool.dex.toLowerCase().includes('orca');
+    if (isOrca && token0Mint && token1Mint) {
+      const whirlpoolAddress = await this.lpExecutor.resolveOrcaWhirlpoolAddress(token0Mint, token1Mint);
+      if (whirlpoolAddress) {
+        console.log(`[AGENT] 🔄 Resolved Orca Whirlpool address: ${pool.address} → ${whirlpoolAddress}`);
+        resolvedAddress = whirlpoolAddress;
+      } else {
+        console.log(`[AGENT] ⚠️ Could not resolve Whirlpool address for ${pool.name}, skipping`);
+        return;
+      }
+    }
+
     const lpPoolInfo: LPPoolInfo = {
-      address: pool.address,
+      address: resolvedAddress,
       name: pool.name,
       dex: pool.dex as SupportedDex,
       token0: {
