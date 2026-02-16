@@ -746,7 +746,7 @@ def run_debate(
     final = rounds[-1]["arbitrator"]
     elapsed_ms = (time.time() - start) * 1000
 
-    return {
+    result = {
         "final_decision": final["decision"],
         "final_confidence": final["confidence"],
         "recommended_size_pct": final["recommended_size_pct"],
@@ -765,3 +765,18 @@ def run_debate(
             "bearish_items": [e.to_dict() for e in evidence["bearish"][:5]],
         },
     }
+
+    # Persist transcript to tiered storage (non-blocking, best-effort)
+    try:
+        from cortex.debate_store import get_debate_store
+        store = get_debate_store()
+        store.store(
+            result,
+            token=ctx.direction,  # token not in context, use direction as fallback
+            trade_size_usd=trade_size_usd,
+            direction=direction,
+        )
+    except Exception:
+        logger.debug("Debate transcript persistence failed (non-critical)", exc_info=True)
+
+    return result

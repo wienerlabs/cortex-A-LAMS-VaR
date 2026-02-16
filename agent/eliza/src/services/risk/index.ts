@@ -59,3 +59,30 @@ export {
   COMPUTE_UNITS,
 } from './gasService.js';
 
+// P&L Attribution
+export {
+  PnLAttributionEngine,
+  getPnLAttributionEngine,
+  resetPnLAttributionEngine,
+  type StrategyType as PnLStrategyType,
+  type ComponentType as PnLComponentType,
+  type AttributedTrade,
+  type StrategyPnL,
+  type ComponentPnL,
+  type TokenPnL,
+  type TimePeriodPnL,
+  type PnLAttributionReport,
+  type ComponentInfluence,
+} from './pnlAttribution.js';
+
+// Debate Client
+export {
+  DebateClient,
+  getDebateClient,
+  resetDebateClient,
+  type DebateTranscript,
+  type DebateTranscriptResponse,
+  type DebateStatsResponse,
+  type DebateStorageStats,
+} from './debateClient.js';
+

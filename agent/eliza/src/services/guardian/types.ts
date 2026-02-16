@@ -32,6 +32,7 @@ export interface GuardianResult {
   validationResult: ValidationResult;
   securityResult: SecurityResult;
   sanityResult: SanityResult;
+  simulationResult?: SimulationResult;
   timestamp: Date;
   executionAllowed: boolean;
   blockReason?: string;
@@ -141,6 +142,46 @@ export interface TokenValidation {
   liquidityUsd?: number;
   isHoneypot?: boolean;
   riskFlags: string[];
+}
+
+// ============= SIMULATION TYPES =============
+
+export interface SimulationResult {
+  success: boolean;
+  estimatedOutputAmount?: number;
+  estimatedSlippagePct?: number;
+  estimatedPriceImpactPct?: number;
+  estimatedGasLamports?: number;
+  jupiterQuoteId?: string;
+  routeDescription?: string;
+  warnings: string[];
+  error?: string;
+  simulationTimeMs: number;
+}
+
+export interface JupiterQuoteResponse {
+  inputMint: string;
+  outputMint: string;
+  inAmount: string;
+  outAmount: string;
+  priceImpactPct: string;
+  routePlan: Array<{
+    swapInfo: {
+      ammKey: string;
+      label: string;
+      inputMint: string;
+      outputMint: string;
+      inAmount: string;
+      outAmount: string;
+      feeAmount: string;
+      feeMint: string;
+    };
+    percent: number;
+  }>;
+  otherAmountThreshold: string;
+  swapMode: string;
+  slippageBps: number;
+  contextSlot?: number;
 }
 
 // ============= CONSTANTS =============

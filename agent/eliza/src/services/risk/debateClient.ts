@@ -189,12 +189,124 @@ export class DebateClient {
     }
   }
 
+  // ============= DEBATE TRANSCRIPT STORE =============
+
+  /**
+   * Get recent debate transcripts from the Python debate store.
+   */
+  async getRecentTranscripts(limit: number = 20): Promise<DebateTranscriptResponse> {
+    const url = `${this.config.apiUrl}/guardian/debates/recent?limit=${limit}`;
+    return this._get<DebateTranscriptResponse>(url);
+  }
+
+  /**
+   * Get aggregate debate decision statistics over a time window.
+   */
+  async getDebateStats(hours: number = 24): Promise<DebateStatsResponse> {
+    const url = `${this.config.apiUrl}/guardian/debates/stats?hours=${hours}`;
+    return this._get<DebateStatsResponse>(url);
+  }
+
+  /**
+   * Get debate transcripts filtered by strategy.
+   */
+  async getTranscriptsByStrategy(strategy: string, limit: number = 50): Promise<DebateTranscriptResponse> {
+    const url = `${this.config.apiUrl}/guardian/debates/by-strategy/${encodeURIComponent(strategy)}?limit=${limit}`;
+    return this._get<DebateTranscriptResponse>(url);
+  }
+
+  /**
+   * Get debate storage tier statistics (HOT/WARM/COLD).
+   */
+  async getStorageStats(): Promise<DebateStorageStats> {
+    const url = `${this.config.apiUrl}/guardian/debates/storage/stats`;
+    return this._get<DebateStorageStats>(url);
+  }
+
+  /**
+   * Generic GET helper with timeout and abort handling.
+   */
+  private async _get<T>(url: string): Promise<T> {
+    this.abortController = new AbortController();
+    const timeout = setTimeout(() => this.abortController?.abort(), this.config.timeoutMs);
+
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        signal: this.abortController.signal,
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`API error ${response.status}: ${text}`);
+      }
+
+      return (await response.json()) as T;
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw new Error(`Request timed out after ${this.config.timeoutMs}ms`);
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+      this.abortController = null;
+    }
+  }
+
   /**
    * Cancel any in-flight requests.
    */
   cancel(): void {
     this.abortController?.abort();
   }
+}
+
+// ============= TRANSCRIPT TYPES =============
+
+export interface DebateTranscript {
+  id: string;
+  timestamp: string;
+  epoch_ms: number;
+  token: string;
+  direction: string;
+  trade_size_usd: number;
+  strategy: string;
+  final_decision: string;
+  final_confidence: number;
+  approval_score: number;
+  recommended_size_pct: number;
+  decision_changed: boolean;
+  original_approved: boolean;
+  num_rounds: number;
+  rounds: Array<Record<string, unknown>>;
+  evidence_summary: Record<string, unknown>;
+  elapsed_ms: number;
+}
+
+export interface DebateTranscriptResponse {
+  transcripts: DebateTranscript[];
+  count: number;
+}
+
+export interface DebateStatsResponse {
+  period_hours: number;
+  total_debates: number;
+  decisions: Record<string, number>;
+  avg_confidence: number;
+  avg_rounds: number;
+  avg_elapsed_ms: number;
+  decision_changed_count: number;
+  by_strategy: Record<string, Record<string, number>>;
+}
+
+export interface DebateStorageStats {
+  hot_count: number;
+  hot_capacity: number;
+  warm_file_bytes: number;
+  warm_retention_hours: number;
+  cold_archive_count: number;
+  cold_total_bytes: number;
+  cold_archives: string[];
 }
 
 // ============= SINGLETON =============

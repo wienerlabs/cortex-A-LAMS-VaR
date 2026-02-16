@@ -80,6 +80,18 @@ export {
   type CachedTelegramResult,
 } from './telegramCollector.js';
 
+// Discord data collection
+export {
+  DiscordCollector,
+  getDiscordCollector,
+  resetDiscordCollector,
+  type DiscordMessage,
+  type DiscordChannelData,
+  type DiscordSentiment,
+  type CachedDiscordResult,
+  type DiscordChannelConfig,
+} from './discordCollector.js';
+
 // Multi-source aggregation
 export {
   MultiSourceAggregator,
@@ -90,4 +102,5 @@ export {
   type CryptoPanicSourceData,
   type TelegramSourceData,
   type MultiSourceSentiment,
+  type DiscordSourceData,
 } from './multiSourceAggregator.js';

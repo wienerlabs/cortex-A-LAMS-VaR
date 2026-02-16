@@ -171,3 +171,66 @@ def get_outcome_circuit_breakers():
     states = get_outcome_states()
     return {"outcome_breakers": states, "timestamp": _time.time()}
 
+
+# ── Debate Transcript Store Endpoints ────────────────────────────────────────
+
+@router.get("/guardian/debates/recent")
+def get_recent_debates(limit: int = 20):
+    """Get most recent debate transcripts from HOT tier."""
+    from cortex.debate_store import get_debate_store
+    store = get_debate_store()
+    return {"transcripts": store.get_recent(limit=limit), "count": min(limit, len(store._hot))}
+
+
+@router.get("/guardian/debates/stats")
+def get_debate_stats(hours: float = 24.0):
+    """Get aggregate debate decision statistics over a time window."""
+    from cortex.debate_store import get_debate_store
+    store = get_debate_store()
+    return store.get_decision_stats(hours=hours)
+
+
+@router.get("/guardian/debates/storage/stats")
+def get_debate_storage_stats():
+    """Get storage statistics across all tiers (HOT/WARM/COLD)."""
+    from cortex.debate_store import get_debate_store
+    store = get_debate_store()
+    return store.get_storage_stats()
+
+
+@router.post("/guardian/debates/storage/rotate")
+def force_debate_rotation():
+    """Manually trigger cold rotation of old debate transcripts."""
+    from cortex.debate_store import get_debate_store
+    store = get_debate_store()
+    return store.force_rotation()
+
+
+@router.get("/guardian/debates/by-strategy/{strategy}")
+def get_debates_by_strategy(strategy: str, limit: int = 50):
+    """Query debate transcripts by strategy."""
+    from cortex.debate_store import get_debate_store
+    store = get_debate_store()
+    transcripts = store.get_by_strategy(strategy, limit=limit)
+    return {"strategy": strategy, "transcripts": transcripts, "count": len(transcripts)}
+
+
+@router.get("/guardian/debates/by-token/{token}")
+def get_debates_by_token(token: str, limit: int = 50):
+    """Query debate transcripts by token."""
+    from cortex.debate_store import get_debate_store
+    store = get_debate_store()
+    transcripts = store.get_by_token(token, limit=limit)
+    return {"token": token, "transcripts": transcripts, "count": len(transcripts)}
+
+
+@router.get("/guardian/debates/{transcript_id}")
+def get_debate_transcript(transcript_id: str):
+    """Get a specific debate transcript by ID."""
+    from cortex.debate_store import get_debate_store
+    store = get_debate_store()
+    transcript = store.get_by_id(transcript_id)
+    if not transcript:
+        raise HTTPException(status_code=404, detail=f"Transcript '{transcript_id}' not found")
+    return transcript
+
