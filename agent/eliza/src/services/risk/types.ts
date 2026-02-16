@@ -115,12 +115,43 @@ export interface GasBudgetStatus {
 
 // ============= GLOBAL RISK STATUS =============
 
+// ============= A-LAMS VaR (Python API) =============
+
+export interface ALAMSVaRConfig {
+  apiUrl: string;               // Python API base URL
+  timeoutMs: number;            // HTTP request timeout
+  maxAcceptableVarPct: number;  // Max VaR before blocking (e.g. 0.05 = 5%)
+  cacheTtlMs: number;           // Cache TTL for VaR results
+}
+
+export interface ALAMSVaRResult {
+  var_pure: number;
+  slippage_component: number;
+  var_total: number;
+  confidence: number;
+  current_regime: number;
+  regime_probs: number[];
+  delta: number;
+  regime_means: number[];
+  regime_sigmas: number[];
+}
+
+export interface ALAMSVaRStatus {
+  available: boolean;
+  result: ALAMSVaRResult | null;
+  error?: string;
+  fetchedAt?: number;
+}
+
+// ============= GLOBAL RISK STATUS =============
+
 export interface GlobalRiskConfig {
   drawdownLimits: DrawdownLimits;
   exposureLimits: ExposureLimits;
   stopLossConfig: DynamicStopLossConfig;
   oracleConfig: OracleConfig;
   gasBudgetConfig: GasBudgetConfig;
+  alamsVarConfig?: ALAMSVaRConfig;
 }
 
 export interface GlobalRiskStatus {
@@ -130,6 +161,7 @@ export interface GlobalRiskStatus {
   correlationRisk: CorrelationRiskStatus;
   oracleStatuses: Map<string, OracleStatus>;
   gasBudget: GasBudgetStatus;
+  alamsVar?: ALAMSVaRStatus;
   canTrade: boolean;
   blockReasons: string[];
 }

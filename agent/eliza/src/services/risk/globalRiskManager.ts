@@ -19,6 +19,7 @@ import { getPortfolioManager, type PortfolioManager } from '../portfolioManager.
 import { OracleService, DEFAULT_ORACLE_CONFIG } from './oracleService.js';
 import { GasService, DEFAULT_GAS_CONFIG, COMPUTE_UNITS } from './gasService.js';
 import type Database from 'better-sqlite3';
+import { ALAMSVaRClient } from './alamsVarClient.js';
 import type {
   GlobalRiskConfig,
   GlobalRiskStatus,
@@ -36,6 +37,8 @@ import type {
   RiskAlert,
   OracleStatus,
   GasBudgetStatus,
+  ALAMSVaRStatus,
+  ALAMSVaRConfig,
 } from './types.js';
 
 // ============= DEFAULT CONFIGURATION =============
@@ -79,6 +82,7 @@ export class GlobalRiskManager {
   private portfolioManager: PortfolioManager;
   private oracleService: OracleService;
   private gasService: GasService;
+  private alamsClient: ALAMSVaRClient;
   private connection: Connection;
   private db: Database.Database;
 
@@ -123,6 +127,7 @@ export class GlobalRiskManager {
     this.portfolioManager = getPortfolioManager();
     this.oracleService = new OracleService(rpcUrl, this.config.oracleConfig);
     this.gasService = new GasService(rpcUrl, this.config.gasBudgetConfig);
+    this.alamsClient = new ALAMSVaRClient(this.config.alamsVarConfig);
 
     // Try to load persisted risk state first
     const loaded = this.loadRiskState();
@@ -885,6 +890,46 @@ export class GlobalRiskManager {
       blockReasons.push('Insufficient gas reserve for emergency exit');
     }
 
+    // 6. A-LAMS VaR check (Python API — non-blocking)
+    let alamsVar: ALAMSVaRStatus = { available: false, result: null };
+    try {
+      const varResult = await this.alamsClient.calculateVaR({
+        confidence: 0.95,
+        trade_size_usd: params.sizeUsd,
+      });
+
+      alamsVar = {
+        available: true,
+        result: varResult,
+        fetchedAt: Date.now(),
+      };
+
+      // Block if total VaR exceeds max acceptable loss
+      const maxVar = this.config.alamsVarConfig?.maxAcceptableVarPct ?? 0.05;
+      if (varResult.var_total > maxVar) {
+        blockReasons.push(
+          `A-LAMS VaR ${(varResult.var_total * 100).toFixed(2)}% exceeds ${(maxVar * 100).toFixed(1)}% limit`
+        );
+      }
+
+      // Block if in crisis regime (index 4 = highest volatility)
+      if (varResult.current_regime >= 4) {
+        blockReasons.push(
+          `A-LAMS crisis regime detected (regime ${varResult.current_regime})`
+        );
+      }
+    } catch (error) {
+      // A-LAMS failure is non-blocking — log and continue
+      alamsVar = {
+        available: false,
+        result: null,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
+      logger.warn('A-LAMS VaR check unavailable', {
+        error: error instanceof Error ? error.message : error,
+      });
+    }
+
     const canTrade = blockReasons.length === 0;
 
     if (!canTrade) {
@@ -901,6 +946,7 @@ export class GlobalRiskManager {
       correlationRisk,
       oracleStatuses,
       gasBudget,
+      alamsVar,
       canTrade,
       blockReasons,
     };

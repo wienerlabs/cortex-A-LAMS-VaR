@@ -18,16 +18,24 @@ References:
 
 from __future__ import annotations
 
+import dataclasses
 import warnings
 from dataclasses import dataclass, field
-from typing import Optional
+from datetime import datetime, timezone
+from typing import Any, Optional
 
 import numpy as np
 from scipy import optimize, stats
 
 import structlog
 
+from cortex.persistence import PersistentStore
+
 logger = structlog.get_logger(__name__)
+
+# Module-level persistent store for A-LAMS-VaR model states.
+# Uses Redis when available, falls back to in-memory dict.
+_alams_store = PersistentStore("alams_var")
 
 # ============= CONFIGURATION =============
 
@@ -537,4 +545,288 @@ class ALAMSVaRModel:
             "regime_probs": [round(p, 4) for p in probs],
             "var_95": round(self.calculate_var(0.95), 6),
             "var_99": round(self.calculate_var(0.99), 6),
+        }
+
+    # ============= PERSISTENCE =============
+
+    def save_state(self, token: str = "default") -> None:
+        """
+        Persist all fitted model parameters to the Redis-backed store.
+
+        Serialises regime means, variances, transition matrix, asymmetry
+        parameter, filtered probabilities, and both config dataclasses.
+        The store uses the same PersistentStore pattern as the rest of
+        Cortex (lazy Redis write, in-memory fast path).
+
+        Args:
+            token: Identifier for this model instance (e.g. "SOL", "BTC").
+        """
+        if not self.is_fitted:
+            raise RuntimeError("Cannot persist an unfitted model.")
+
+        state: dict[str, Any] = {
+            "mu": self.mu,
+            "sigma": self.sigma,
+            "P_base": self.P_base,
+            "delta": self.delta,
+            "filtered_probs": self.filtered_probs,
+            "log_likelihood": self.log_likelihood,
+            "n_obs": self.n_obs,
+            "K": self.K,
+            "is_fitted": self.is_fitted,
+            "config": dataclasses.asdict(self.config),
+            "liquidity_config": dataclasses.asdict(self.liquidity_config),
+            "fitted_at": datetime.now(timezone.utc).isoformat(),
+            "version": "1.0.0",
+        }
+        _alams_store[token] = state
+        logger.info("alams_var.save_state", token=token, n_obs=self.n_obs)
+
+    @classmethod
+    def load_state(cls, token: str = "default") -> "ALAMSVaRModel":
+        """
+        Reconstruct a fitted ALAMSVaRModel from the persistent store.
+
+        Restores all regime parameters, transition matrix, asymmetry δ,
+        filtered probabilities, and configuration so the model is immediately
+        usable for VaR calculations without re-fitting.
+
+        Args:
+            token: Identifier for the model instance to load.
+
+        Raises:
+            KeyError: If no model is stored under the given token.
+        """
+        if token not in _alams_store:
+            raise KeyError(f"No persisted A-LAMS model found for token '{token}'")
+
+        state = _alams_store[token]
+
+        config = ALAMSConfig(**state["config"])
+        liq_config = LiquidityConfig(**state["liquidity_config"])
+        model = cls(config=config, liquidity_config=liq_config)
+
+        model.mu = np.asarray(state["mu"], dtype=np.float64)
+        model.sigma = np.asarray(state["sigma"], dtype=np.float64)
+        model.P_base = np.asarray(state["P_base"], dtype=np.float64)
+        model.delta = float(state["delta"])
+        model.filtered_probs = (
+            np.asarray(state["filtered_probs"], dtype=np.float64)
+            if state["filtered_probs"] is not None
+            else None
+        )
+        model.log_likelihood = float(state["log_likelihood"])
+        model.n_obs = int(state["n_obs"])
+        model.K = int(state["K"])
+        model.is_fitted = bool(state["is_fitted"])
+
+        logger.info(
+            "alams_var.load_state",
+            token=token,
+            n_obs=model.n_obs,
+            delta=model.delta,
+            fitted_at=state.get("fitted_at"),
+        )
+        return model
+
+    @staticmethod
+    async def restore_all() -> int:
+        """Load all persisted models from Redis into the in-memory store."""
+        return await _alams_store.restore()
+
+    @staticmethod
+    def list_models() -> list[str]:
+        """Return list of persisted model tokens."""
+        return list(_alams_store.keys())
+
+    @staticmethod
+    def delete_model(token: str) -> None:
+        """Remove a persisted model from the store."""
+        if token in _alams_store:
+            del _alams_store[token]
+
+    # ============= BACKTESTING =============
+
+    def backtest(
+        self,
+        returns: np.ndarray,
+        confidence: float = 0.95,
+        min_window: int = 100,
+        refit_every: int = 50,
+    ) -> dict[str, Any]:
+        """
+        Rolling out-of-sample VaR backtest with statistical validation.
+
+        Generates a time series of one-step-ahead VaR forecasts using an
+        expanding window, then evaluates model adequacy via Kupiec (1995)
+        proportion-of-failures test and Christoffersen (1998) independence
+        test from ``cortex.backtesting``.
+
+        Algorithm:
+            For t = min_window .. T-1:
+                1. If (t - min_window) % refit_every == 0, re-fit on returns[0:t]
+                2. Filter returns[0:t] to update regime probabilities
+                3. Forecast VaR_{t+1} using current regime probs
+                4. Record violation if returns[t+1] < -VaR_{t+1}
+
+        Args:
+            returns: Full array of log returns for backtesting.
+            confidence: VaR confidence level (e.g. 0.95).
+            min_window: Minimum observations before first forecast.
+            refit_every: Re-estimate parameters every N steps.
+
+        Returns:
+            Dict with n_obs, n_violations, violation_rate, kupiec, christoffersen,
+            var_forecasts, and per-step details.
+        """
+        from cortex.backtesting import christoffersen_test, kupiec_test
+
+        returns = np.asarray(returns, dtype=np.float64)
+        T = len(returns)
+
+        if T < min_window + 10:
+            raise ValueError(
+                f"Need at least {min_window + 10} observations for backtest, got {T}"
+            )
+
+        var_forecasts: list[float] = []
+        realized_returns: list[float] = []
+        violations: list[int] = []
+        regime_at_forecast: list[int] = []
+
+        # Working model for backtesting (avoid mutating self)
+        bt_model = ALAMSVaRModel(
+            config=ALAMSConfig(
+                n_regimes=self.config.n_regimes,
+                confidence_levels=self.config.confidence_levels,
+                min_observations=min(min_window, self.config.min_observations),
+                max_iter=self.config.max_iter,
+                tol=self.config.tol,
+                asymmetry_prior=self.config.asymmetry_prior,
+                regularization=self.config.regularization,
+            ),
+            liquidity_config=self.liquidity_config,
+        )
+
+        last_fit_t = -refit_every  # force initial fit
+
+        for t in range(min_window, T - 1):
+            # Re-fit if needed
+            if (t - min_window) % refit_every == 0 or not bt_model.is_fitted:
+                try:
+                    bt_model.fit(returns[:t])
+                    last_fit_t = t
+                except Exception:
+                    if not bt_model.is_fitted:
+                        continue
+            else:
+                # Just update filter with latest data
+                bt_model.filter(returns[:t])
+
+            # Forecast VaR for t+1
+            var_t = bt_model.calculate_var(confidence)
+            realized = returns[t + 1]
+
+            # Violation: realized return is worse than -VaR (loss exceeds VaR)
+            is_violation = 1 if realized < -var_t else 0
+
+            var_forecasts.append(var_t)
+            realized_returns.append(float(realized))
+            violations.append(is_violation)
+            regime_at_forecast.append(bt_model.get_current_regime())
+
+        n_obs = len(violations)
+        n_violations = sum(violations)
+        violation_rate = n_violations / n_obs if n_obs > 0 else 0.0
+
+        # Statistical tests
+        confidence_pct = confidence * 100.0
+        kup = kupiec_test(n_obs, n_violations, confidence_pct)
+        chris = christoffersen_test(np.array(violations))
+
+        # Conditional coverage (joint test)
+        cc_statistic = kup["statistic"] + chris["statistic"]
+        cc_pvalue = float(1.0 - stats.chi2.cdf(cc_statistic, df=2))
+
+        result: dict[str, Any] = {
+            "n_obs": n_obs,
+            "n_violations": n_violations,
+            "violation_rate": round(violation_rate, 6),
+            "expected_rate": round(1.0 - confidence, 6),
+            "confidence": confidence,
+            "min_window": min_window,
+            "refit_every": refit_every,
+            "kupiec": kup,
+            "christoffersen": chris,
+            "conditional_coverage": {
+                "statistic": round(cc_statistic, 4),
+                "p_value": round(cc_pvalue, 4),
+                "pass": cc_pvalue > 0.05,
+            },
+            "var_forecasts": var_forecasts,
+            "realized_returns": realized_returns,
+            "violations": violations,
+            "regime_at_forecast": regime_at_forecast,
+        }
+
+        logger.info(
+            "alams_var.backtest.complete",
+            n_obs=n_obs,
+            n_violations=n_violations,
+            violation_rate=round(violation_rate, 4),
+            kupiec_pass=kup["pass"],
+            christoffersen_pass=chris["pass"],
+            cc_pass=cc_pvalue > 0.05,
+        )
+
+        return result
+
+    def backtest_multi_confidence(
+        self,
+        returns: np.ndarray,
+        confidence_levels: Optional[list[float]] = None,
+        min_window: int = 100,
+        refit_every: int = 50,
+    ) -> dict[str, Any]:
+        """
+        Run backtests at multiple confidence levels and return a summary.
+
+        Args:
+            returns: Full array of log returns.
+            confidence_levels: List of confidence levels (default: [0.95, 0.99]).
+            min_window: Minimum observations before first forecast.
+            refit_every: Re-estimation frequency.
+
+        Returns:
+            Dict with per-level backtest results and overall assessment.
+        """
+        if confidence_levels is None:
+            confidence_levels = self.config.confidence_levels
+
+        results = {}
+        all_pass = True
+
+        for conf in confidence_levels:
+            bt = self.backtest(returns, conf, min_window, refit_every)
+            key = f"var_{int(conf * 100)}"
+            results[key] = {
+                "confidence": conf,
+                "n_obs": bt["n_obs"],
+                "n_violations": bt["n_violations"],
+                "violation_rate": bt["violation_rate"],
+                "expected_rate": bt["expected_rate"],
+                "kupiec_pass": bt["kupiec"]["pass"],
+                "kupiec_pvalue": bt["kupiec"]["p_value"],
+                "christoffersen_pass": bt["christoffersen"]["pass"],
+                "christoffersen_pvalue": bt["christoffersen"]["p_value"],
+                "cc_pass": bt["conditional_coverage"]["pass"],
+                "cc_pvalue": bt["conditional_coverage"]["p_value"],
+            }
+            if not bt["kupiec"]["pass"] or not bt["conditional_coverage"]["pass"]:
+                all_pass = False
+
+        return {
+            "all_pass": all_pass,
+            "confidence_levels": confidence_levels,
+            "results": results,
         }

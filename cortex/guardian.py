@@ -34,6 +34,11 @@ from cortex.config import (
     NEAR_CRISIS_REGIME_HAIRCUT,
     GUARDIAN_KELLY_FRACTION,
     GUARDIAN_KELLY_MIN_TRADES,
+    ALAMS_SCORE_VAR_FLOOR,
+    ALAMS_SCORE_VAR_CEILING,
+    ALAMS_CRISIS_REGIME_BONUS,
+    ALAMS_HIGH_DELTA_BONUS,
+    ALAMS_HIGH_DELTA_THRESHOLD,
 )
 
 logger = logging.getLogger(__name__)
@@ -241,6 +246,74 @@ def _score_news(news_signal: dict, direction: str) -> dict:
     }
 
 
+def _score_alams(alams_data: dict) -> dict:
+    """
+    Score A-LAMS VaR risk (0-100).
+
+    Maps VaR magnitude, regime state, and asymmetry parameter δ to a
+    composite risk score for Guardian integration.
+
+    Scoring curve:
+      - VaR(95%) < FLOOR (1%) → low risk (score ≈ 0)
+      - VaR(95%) in [FLOOR, CEILING] → linear interpolation (0 → 80)
+      - VaR(95%) > CEILING (8%) → extreme risk (score 80+)
+      - Crisis regime (index >= 4) → +CRISIS_BONUS (20)
+      - High asymmetry δ > THRESHOLD (0.3) → +DELTA_BONUS (10)
+        (indicates strong negative-return → high-vol transition pressure)
+
+    Expected alams_data keys:
+      var_total: float      — total VaR (regime + slippage)
+      current_regime: int   — most likely regime index (0-based)
+      regime_probs: list     — K-length probability vector
+      delta: float          — asymmetry parameter
+      regime_sigmas: list   — per-regime volatilities (optional, for detail)
+    """
+    var_total = alams_data.get("var_total", 0.0)
+    current_regime = alams_data.get("current_regime", 0)
+    delta = alams_data.get("delta", 0.0)
+    regime_probs = alams_data.get("regime_probs", [])
+
+    # Base score: map VaR from [floor, ceiling] → [0, 80]
+    var_range = ALAMS_SCORE_VAR_CEILING - ALAMS_SCORE_VAR_FLOOR
+    if var_range > 0:
+        base = (var_total - ALAMS_SCORE_VAR_FLOOR) / var_range * 80.0
+    else:
+        base = 0.0
+    base = max(0.0, min(80.0, base))
+
+    # Crisis regime bonus: regime index 4 (highest in 5-regime model)
+    crisis_bonus = 0.0
+    if current_regime >= 4:
+        crisis_bonus = ALAMS_CRISIS_REGIME_BONUS
+    elif current_regime >= 3:
+        # Near-crisis: partial bonus scaled by high-regime probability
+        high_prob = float(regime_probs[-1]) if regime_probs else 0.0
+        crisis_bonus = ALAMS_CRISIS_REGIME_BONUS * 0.5 * high_prob
+
+    # High-delta bonus: strong asymmetry implies market stress
+    delta_bonus = 0.0
+    if delta > ALAMS_HIGH_DELTA_THRESHOLD:
+        excess = (delta - ALAMS_HIGH_DELTA_THRESHOLD) / (0.5 - ALAMS_HIGH_DELTA_THRESHOLD)
+        delta_bonus = min(ALAMS_HIGH_DELTA_BONUS, ALAMS_HIGH_DELTA_BONUS * excess)
+
+    score = min(100.0, base + crisis_bonus + delta_bonus)
+
+    return {
+        "component": "alams",
+        "score": round(score, 2),
+        "details": {
+            "var_total": round(var_total, 6),
+            "var_total_pct": round(var_total * 100, 2),
+            "current_regime": current_regime,
+            "delta": round(delta, 4),
+            "base_score": round(base, 2),
+            "crisis_bonus": round(crisis_bonus, 2),
+            "delta_bonus": round(delta_bonus, 2),
+            "regime_probs": [round(float(p), 4) for p in regime_probs] if regime_probs else [],
+        },
+    }
+
+
 def record_trade_outcome(pnl: float, size: float, token: str = "") -> None:
     """Record a completed trade for Kelly Criterion calculation."""
     _trade_history.append({"pnl": pnl, "size": size, "token": token, "ts": time.time()})
@@ -316,6 +389,7 @@ def assess_trade(
     svj_data: dict | None,
     hawkes_data: dict | None,
     news_data: dict | None = None,
+    alams_data: dict | None = None,
     strategy: str | None = None,
     run_debate: bool = False,
 ) -> dict:
@@ -373,7 +447,7 @@ def assess_trade(
         if regime_score["score"] > CIRCUIT_BREAKER_THRESHOLD:
             veto_reasons.append("regime_extreme_crisis")
 
-    # News component (15%)
+    # News component (10%)
     if news_data:
         news_score = _score_news(news_data, direction)
         scores.append(news_score)
@@ -382,6 +456,16 @@ def assess_trade(
             veto_reasons.append("news_extreme_negative")
         if news_score["details"]["direction_conflict"] and news_score["details"]["strength"] > 0.6:
             veto_reasons.append("news_strong_direction_conflict")
+
+    # A-LAMS VaR component (25%)
+    if alams_data:
+        alams_score = _score_alams(alams_data)
+        scores.append(alams_score)
+        available_weights += WEIGHTS["alams"]
+        if alams_score["score"] > CIRCUIT_BREAKER_THRESHOLD:
+            veto_reasons.append("alams_extreme_var")
+        if alams_data.get("current_regime", 0) >= 4:
+            veto_reasons.append("alams_crisis_regime")
 
     # Composite score (re-normalize weights to available components)
     if available_weights > 0 and scores:
