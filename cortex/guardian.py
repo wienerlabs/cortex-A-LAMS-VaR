@@ -518,6 +518,8 @@ def assess_trade(
                 direction=direction,
                 trade_size_usd=trade_size_usd,
                 original_approved=approved,
+                strategy=strategy or "spot",
+                alams_data=alams_data,
             )
             if debate_result["decision_changed"]:
                 approved = debate_result["final_decision"] == "approve"

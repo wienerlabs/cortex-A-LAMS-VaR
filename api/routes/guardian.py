@@ -103,15 +103,12 @@ def record_trade_outcome(req: TradeOutcomeRequest):
     return {"status": "recorded", "pnl": req.pnl, "size": req.size, "token": req.token}
 
 
-@router.get("/guardian/circuit-breakers", response_model=CircuitBreakersResponse)
+@router.get("/guardian/circuit-breakers")
 def get_circuit_breakers():
     import time
     from cortex.circuit_breaker import get_all_states
     states = get_all_states()
-    return CircuitBreakersResponse(
-        breakers=[CircuitBreakerItem(**s) for s in states],
-        timestamp=time.time(),
-    )
+    return {"breakers": states, "timestamp": time.time()}
 
 
 @router.post("/guardian/circuit-breakers/reset")
@@ -126,7 +123,7 @@ def reset_circuit_breakers(name: str | None = None):
     return {"status": "all_reset"}
 
 
-@router.post("/guardian/debate", response_model=DebateResponse)
+@router.post("/guardian/debate")
 def run_debate_endpoint(req: GuardianAssessRequest):
     """Run adversarial debate for a trade proposal (standalone, without full assess)."""
     from cortex.debate import run_debate
@@ -138,6 +135,39 @@ def run_debate_endpoint(req: GuardianAssessRequest):
         direction=req.direction,
         trade_size_usd=req.trade_size_usd,
         original_approved=True,
+        strategy=req.strategy or "spot",
     )
-    return DebateResponse(**result)
+    return result
+
+
+@router.post("/guardian/trade-outcome/strategy")
+def record_strategy_trade_outcome(
+    strategy: str,
+    success: bool,
+    pnl: float = 0.0,
+    loss_type: str = "",
+    details: str = "",
+):
+    """Record a trade outcome for strategy-specific circuit breakers.
+
+    This feeds the outcome-based circuit breakers:
+    - LP: 3 consecutive IL → pause
+    - Arb: 5 consecutive failed executions → pause
+    - Perp: 2 consecutive stop-losses → pause
+    """
+    from cortex.circuit_breaker import record_trade_outcome
+    result = record_trade_outcome(
+        strategy=strategy, success=success, pnl=pnl,
+        loss_type=loss_type, details=details,
+    )
+    return result
+
+
+@router.get("/guardian/circuit-breakers/outcomes")
+def get_outcome_circuit_breakers():
+    """Get status of outcome-based circuit breakers only."""
+    import time as _time
+    from cortex.circuit_breaker import get_outcome_states
+    states = get_outcome_states()
+    return {"outcome_breakers": states, "timestamp": _time.time()}
 

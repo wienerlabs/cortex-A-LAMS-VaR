@@ -175,6 +175,87 @@ export interface RiskAlert {
   data?: Record<string, unknown>;
 }
 
+// ============= ADVERSARIAL DEBATE =============
+
+export interface DebateEvidence {
+  source: string;
+  claim: string;
+  value: number;
+  threshold: number | null;
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  supports_approval: boolean;
+}
+
+export interface DebateAgentArgument {
+  role: string;
+  position: string;
+  confidence: number;
+  arguments: string[];
+  evidence: DebateEvidence[];
+  suggested_action: string;
+  suggested_size_pct: number | null;
+  bayesian_posterior: number;
+}
+
+export interface DebateRound {
+  round: number;
+  trader: DebateAgentArgument;
+  risk_manager: DebateAgentArgument;
+  devils_advocate: DebateAgentArgument;
+  arbitrator: {
+    role: string;
+    decision: 'approve' | 'reject';
+    confidence: number;
+    reasoning: string[];
+    approval_score: number;
+    rejection_score: number;
+    recommended_size_pct: number;
+    trader_weight: number;
+    risk_weight: number;
+    da_weight: number;
+    strategy_profile: string;
+  };
+}
+
+export interface DebateResult {
+  final_decision: 'approve' | 'reject';
+  final_confidence: number;
+  recommended_size_pct: number;
+  approval_score: number;
+  rounds: DebateRound[];
+  num_rounds: number;
+  elapsed_ms: number;
+  original_approved: boolean;
+  decision_changed: boolean;
+  strategy: string;
+  evidence_summary: {
+    total: number;
+    bullish: number;
+    bearish: number;
+    bullish_items: DebateEvidence[];
+    bearish_items: DebateEvidence[];
+  };
+}
+
+// ============= OUTCOME CIRCUIT BREAKERS =============
+
+export interface OutcomeCircuitBreakerStatus {
+  name: string;
+  strategy: string;
+  state: 'closed' | 'open' | 'half_open';
+  consecutive_losses: number;
+  loss_limit: number;
+  loss_type: string;
+  cooldown_seconds: number;
+  opened_at: number | null;
+  cooldown_remaining: number | null;
+  total_trades: number;
+  total_wins: number;
+  total_losses: number;
+  win_rate: number;
+  description: string;
+}
+
 // Position types for tracking
 export interface TrackedPosition {
   id: string;
