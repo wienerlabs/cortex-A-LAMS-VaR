@@ -137,18 +137,13 @@ DEBATE_MAX_ROUNDS = int(os.environ.get("DEBATE_MAX_ROUNDS", "3"))
 DEBATE_TIMEOUT_MS = int(os.environ.get("DEBATE_TIMEOUT_MS", "5000"))
 GUARDIAN_AUTO_DEBATE_THRESHOLD = float(os.environ.get("GUARDIAN_AUTO_DEBATE_THRESHOLD", "65.0"))
 
-# ── Axiom Trade DEX Aggregator ──
-# Auth: email/password + OTP → access_token/refresh_token (no API key)
+# ── DexScreener DEX Data (free, keyless REST API) ──
 
-AXIOM_EMAIL = os.environ.get("AXIOM_EMAIL", "")
-AXIOM_PASSWORD = os.environ.get("AXIOM_PASSWORD", "")
-AXIOM_AUTH_TOKEN = os.environ.get("AXIOM_AUTH_TOKEN", "")
-AXIOM_REFRESH_TOKEN = os.environ.get("AXIOM_REFRESH_TOKEN", "")
-AXIOM_TIMEOUT = int(os.environ.get("AXIOM_TIMEOUT", "30"))
-AXIOM_MAX_RETRIES = int(os.environ.get("AXIOM_MAX_RETRIES", "3"))
-AXIOM_WS_RECONNECT_DELAY = int(os.environ.get("AXIOM_WS_RECONNECT_DELAY", "5"))
-AXIOM_NEW_TOKEN_BUFFER = int(os.environ.get("AXIOM_NEW_TOKEN_BUFFER", "100"))
-AXIOM_MIN_LIQUIDITY_SOL = float(os.environ.get("AXIOM_MIN_LIQUIDITY_SOL", "10.0"))
+DEXSCREENER_BASE_URL = os.environ.get("DEXSCREENER_BASE_URL", "https://api.dexscreener.com")
+DEXSCREENER_TIMEOUT = float(os.environ.get("DEXSCREENER_TIMEOUT", "30"))
+DEXSCREENER_MAX_RETRIES = int(os.environ.get("DEXSCREENER_MAX_RETRIES", "3"))
+DEXSCREENER_CACHE_TTL = float(os.environ.get("DEXSCREENER_CACHE_TTL", "30"))
+DEXSCREENER_MIN_LIQUIDITY_USD = float(os.environ.get("DEXSCREENER_MIN_LIQUIDITY_USD", "5000"))
 
 # ── Jupiter Swap API (Trade Execution) ──
 
