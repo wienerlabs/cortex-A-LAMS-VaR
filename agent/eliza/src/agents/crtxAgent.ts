@@ -2737,6 +2737,7 @@ export class CRTXAgent {
     }
 
     // ========== ADVERSARIAL DEBATE CHECK (low confidence) ==========
+    let debateSizeCap: number | null = null;
     if (opp.confidence < 0.7) {
       try {
         const debateClient = getDebateClient();
@@ -2770,6 +2771,10 @@ export class CRTXAgent {
           console.log(`[AGENT] ❌ Spot trade rejected by adversarial debate (confidence: ${debateResult.final_confidence.toFixed(2)})`);
           return;
         }
+
+        if (debateResult.final_decision === 'approve' && debateResult.recommended_size_pct > 0) {
+          debateSizeCap = debateResult.recommended_size_pct;
+        }
       } catch (error) {
         logger.warn('[CRTX] Debate API unreachable for spot trade, proceeding', {
           token: token.symbol,
@@ -2788,7 +2793,20 @@ export class CRTXAgent {
         portfolioValueUsd: this.config.portfolioValueUsd,
       });
 
-      const buyAmountUsd = Math.min(positionCalc.positionUsd, 2000); // Cap at $2K for spot
+      let finalPositionUsd = positionCalc.positionUsd;
+      if (debateSizeCap !== null) {
+        const debateMaxUsd = this.config.portfolioValueUsd * debateSizeCap;
+        if (debateMaxUsd < finalPositionUsd) {
+          logger.info('[CRTX] Debate size cap reducing position', {
+            original: finalPositionUsd,
+            debateCap: debateMaxUsd,
+            recommended_size_pct: debateSizeCap,
+          });
+          finalPositionUsd = debateMaxUsd;
+        }
+      }
+
+      const buyAmountUsd = Math.min(finalPositionUsd, 2000); // Cap at $2K for spot
 
       console.log(`[AGENT]    Buying $${buyAmountUsd.toFixed(0)} of ${token.symbol}...`);
       console.log(`[AGENT]    Entry Price: $${token.currentPrice || 'N/A'}`);
