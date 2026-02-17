@@ -10,6 +10,15 @@ Provides:
   4. In-memory price cache with TTL
 """
 
+__all__ = [
+    "is_available",
+    "get_token_price",
+    "get_pair_liquidity",
+    "extract_liquidity_metrics",
+    "get_new_tokens",
+    "get_cached_prices",
+]
+
 import logging
 import time
 from typing import Any

@@ -11,6 +11,14 @@ Supports:
 No hardcoded feed IDs. The entire Pyth crypto market is accessible.
 """
 
+__all__ = [
+    "list_feeds",
+    "search_feeds",
+    "get_prices",
+    "get_historical_price",
+    "get_price_buffer",
+]
+
 import logging
 import time
 from collections import deque

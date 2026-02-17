@@ -4,6 +4,13 @@ Fetches OHLCV, funding rates, and liquidity metrics from on-chain sources.
 Outputs DataFrames compatible with the existing yfinance-based pipeline.
 """
 
+__all__ = [
+    "TOKEN_REGISTRY",
+    "fetch_ohlcv",
+    "fetch_funding_rates",
+    "fetch_liquidity",
+]
+
 import os
 import logging
 from datetime import datetime, timezone
