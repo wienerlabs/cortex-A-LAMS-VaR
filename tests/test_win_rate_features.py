@@ -628,10 +628,15 @@ class TestTradeOutcomeEndpoint:
         g.record_trade_outcome(pnl=10.0, size=100.0)
         mock_record.assert_not_called()
 
-    def test_api_route_calls_debate_outcome(self, monkeypatch):
+    def test_api_route_calls_debate_outcome(self):
         """The API route handler calls debate.record_debate_outcome when strategy is set."""
-        import cortex.debate as d
-        monkeypatch.setattr(d, "DEBATE_EMPIRICAL_PRIOR_ENABLED", True)
+        import sys
+
+        # Access the module via sys.modules to handle importlib reloads
+        # (test_debate_and_circuit_breakers.py uses _load_module which replaces
+        # the sys.modules entry but not the parent package attribute cache)
+        debate_mod = sys.modules["cortex.debate"]
+        debate_mod._debate_outcomes.clear()
 
         from api.routes.guardian import record_trade_outcome as route_handler
         from api.models import TradeOutcomeRequest
@@ -643,21 +648,23 @@ class TestTradeOutcomeEndpoint:
         result = route_handler(req)
         assert result["status"] == "recorded"
         assert result["strategy"] == "arb"
-        # Debate outcome should have been recorded
-        assert len(d._debate_outcomes) == 1
-        assert d._debate_outcomes[0]["strategy"] == "arb"
+        # Verify via sys.modules (route handler's lazy import uses sys.modules)
+        arb_outcomes = [o for o in debate_mod._debate_outcomes if o["strategy"] == "arb"]
+        assert len(arb_outcomes) >= 1
+        assert arb_outcomes[-1]["win"] is True
 
     def test_api_route_no_debate_without_strategy(self):
         """Without a strategy, debate outcome is not recorded."""
-        import cortex.debate as d
+        from unittest.mock import patch
 
         from api.routes.guardian import record_trade_outcome as route_handler
         from api.models import TradeOutcomeRequest
 
         req = TradeOutcomeRequest(pnl=5.0, size=100.0, token="SOL")
-        result = route_handler(req)
-        assert result["status"] == "recorded"
-        assert len(d._debate_outcomes) == 0
+        with patch("cortex.debate.record_debate_outcome") as mock_record:
+            result = route_handler(req)
+            assert result["status"] == "recorded"
+            mock_record.assert_not_called()
 
     def test_api_route_returns_all_fields(self):
         """The response includes token, regime, and strategy."""

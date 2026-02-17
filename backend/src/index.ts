@@ -9,6 +9,7 @@ import agentRouter from "./api/agent.js";
 import orchestratorRouter from "./routes/orchestrator.js";
 import { initializeAgent, isAgentInitialized } from "./agent/index.js";
 import { getOrchestrator } from "./agent/orchestrator/index.js";
+import { solanaAuth } from "./middleware/solanaAuth.js";
 
 const app = express();
 
@@ -17,9 +18,9 @@ app.use(express.json());
 
 app.use("/api/health", healthRouter);
 app.use("/api/vaults", vaultsRouter);
-app.use("/api/relay", relayRouter);
+app.use("/api/relay", solanaAuth, relayRouter);
 app.use("/api/solana", solanaRouter);
-app.use("/api/agent", agentRouter);
+app.use("/api/agent", solanaAuth, agentRouter);
 app.use("/api/orchestrator", orchestratorRouter);
 
 app.use((_req, res) => {

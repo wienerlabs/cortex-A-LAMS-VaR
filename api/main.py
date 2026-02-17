@@ -40,7 +40,29 @@ async def lifespan(app: FastAPI):
     if total:
         logger.info("Restored %d model state(s) from Redis", total)
 
+    # Restore singleton state from Redis snapshots
+    from cortex.circuit_breaker import restore_cb_state
+    from cortex.guardian import restore_kelly_state
+    from cortex.debate import restore_debate_state
+    restore_cb_state()
+    restore_kelly_state()
+    restore_debate_state()
+
+    # Start periodic recalibration scheduler
+    from api.tasks import start_recalibration_scheduler, stop_recalibration_scheduler
+    start_recalibration_scheduler()
+
     yield
+
+    stop_recalibration_scheduler()
+
+    # Persist singleton state before shutdown
+    from cortex.circuit_breaker import persist_cb_state
+    from cortex.guardian import persist_kelly_state
+    from cortex.debate import persist_debate_state
+    persist_cb_state()
+    persist_kelly_state()
+    persist_debate_state()
 
     persisted = 0
     for store in ALL_STORES:

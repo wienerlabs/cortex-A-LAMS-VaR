@@ -3499,6 +3499,23 @@ export class CRTXAgent {
         const pnlPct = pnlUsd / (amount * position.entryPrice);
         this.riskManager.recordTrade(pnlPct);
 
+        // Record realized PnL to circuit breaker + Kelly/debate via Python risk engine
+        const lossType = exitType === 'stop_loss' ? 'stop_loss' : (exitType === 'trailing_stop' ? 'stop_loss' : (pnlUsd <= 0 ? 'market_loss' : ''));
+        getDebateClient().recordTradeOutcome({
+          strategy: 'spot',
+          success: pnlUsd > 0,
+          pnl: pnlUsd,
+          loss_type: lossType,
+          details: `exit_type=${exitType} token=${position.token.symbol}`,
+        }).catch(() => {});
+
+        getDebateClient().recordOutcome({
+          pnl: pnlUsd,
+          size: amount * position.entryPrice,
+          token: position.token.symbol,
+          strategy: 'spot',
+        }).catch(() => {});
+
         logger.info('[CRTX] Spot position exited', {
           positionId: position.id,
           symbol: position.token.symbol,
@@ -3516,6 +3533,15 @@ export class CRTXAgent {
           positionId: position.id,
           error: result.error,
         });
+
+        // Record failed execution to circuit breaker
+        getDebateClient().recordTradeOutcome({
+          strategy: 'spot',
+          success: false,
+          pnl: 0,
+          loss_type: 'execution_failure',
+          details: `sell_failed: ${result.error}`,
+        }).catch(() => {});
       }
     } catch (error) {
       console.log(`[AGENT] ❌ Spot sell error: ${error}`);
@@ -3523,6 +3549,15 @@ export class CRTXAgent {
         positionId: position.id,
         error: error instanceof Error ? error.message : String(error),
       });
+
+      // Record execution error to circuit breaker
+      getDebateClient().recordTradeOutcome({
+        strategy: 'spot',
+        success: false,
+        pnl: 0,
+        loss_type: 'execution_failure',
+        details: `sell_error: ${error instanceof Error ? error.message : String(error)}`,
+      }).catch(() => {});
     }
   }
 

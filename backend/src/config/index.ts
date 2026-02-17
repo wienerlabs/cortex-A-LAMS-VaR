@@ -21,6 +21,9 @@ const envSchema = z.object({
   GUARDIAN_ADDRESS: z.string().optional(),
 
   CORS_ORIGIN: z.string().default("*"),
+
+  // Auth — Solana public key authorized to call mutating endpoints
+  AUTHORIZED_PUBLIC_KEY: z.string().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);

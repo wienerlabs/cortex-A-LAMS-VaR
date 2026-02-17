@@ -822,3 +822,34 @@ def run_debate(
         logger.debug("Debate transcript persistence failed (non-critical)", exc_info=True)
 
     return result
+
+
+# ── Debate Outcome Persistence ───────────────────────────────────────
+
+_debate_store: Any = None
+
+
+def _get_debate_outcome_store():
+    """Lazy-init PersistentStore for debate outcome priors."""
+    global _debate_store
+    if _debate_store is None:
+        from cortex.persistence import PersistentStore
+        _debate_store = PersistentStore("debate_outcomes")
+    return _debate_store
+
+
+def persist_debate_state() -> None:
+    """Snapshot debate outcomes to Redis."""
+    store = _get_debate_outcome_store()
+    store["outcomes"] = _debate_outcomes[-1000:]
+    logger.info("Persisted %d debate outcome entries to Redis", len(_debate_outcomes))
+
+
+def restore_debate_state() -> None:
+    """Restore debate outcomes from Redis."""
+    store = _get_debate_outcome_store()
+    data = store.get("outcomes")
+    if data:
+        _debate_outcomes.clear()
+        _debate_outcomes.extend(data)
+        logger.info("Restored %d debate outcome entries from Redis", len(_debate_outcomes))

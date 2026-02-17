@@ -20,12 +20,24 @@ _hawkes_store: PersistentStore = PersistentStore("hawkes")
 _rough_store: PersistentStore = PersistentStore("rough")
 _svj_store: PersistentStore = PersistentStore("svj")
 
+# Circuit breaker store — snapshots score-based and outcome-based CB state
+from cortex.circuit_breaker import _get_cb_store
+_circuit_breaker_store: PersistentStore = _get_cb_store()
+
+# Kelly trade history + debate outcome priors
+from cortex.guardian import _get_kelly_store
+_kelly_store: PersistentStore = _get_kelly_store()
+
+from cortex.debate import _get_debate_outcome_store
+_debate_outcome_store: PersistentStore = _get_debate_outcome_store()
+
 # Comparison cache is ephemeral — no need to persist
 _comparison_cache: dict[str, tuple[pd.DataFrame, float]] = {}
 
 ALL_STORES: list[PersistentStore] = [
     _model_store, _portfolio_store, _evt_store, _copula_store,
-    _hawkes_store, _rough_store, _svj_store,
+    _hawkes_store, _rough_store, _svj_store, _circuit_breaker_store,
+    _kelly_store, _debate_outcome_store,
 ]
 
 _PORTFOLIO_KEY = "default"
