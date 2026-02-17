@@ -27,8 +27,9 @@ class ExecuteTradeRequest(BaseModel):
     force: bool = False
 
 
-@router.post("/execution/preflight")
+@router.post("/execution/preflight", summary="Preflight trade check")
 def preflight(req: PreflightRequest):
+    """Run preflight checks (Guardian veto, circuit breakers, portfolio limits) before execution."""
     from cortex.execution import preflight_check
 
     try:
@@ -44,8 +45,9 @@ def preflight(req: PreflightRequest):
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@router.post("/execution/trade")
+@router.post("/execution/trade", summary="Execute trade")
 def execute_trade(req: ExecuteTradeRequest):
+    """Execute a swap on Solana via Jupiter aggregator after preflight validation."""
     from cortex.execution import execute_trade as _execute
 
     try:
@@ -65,15 +67,17 @@ def execute_trade(req: ExecuteTradeRequest):
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@router.get("/execution/log")
+@router.get("/execution/log", summary="Get execution log")
 def get_execution_log(limit: int = Query(50, ge=1, le=500)):
+    """Return recent trade execution log entries."""
     from cortex.execution import get_execution_log as _log
 
     return {"entries": _log(limit=limit)}
 
 
-@router.get("/execution/stats")
+@router.get("/execution/stats", summary="Get execution statistics")
 def get_execution_stats():
+    """Return aggregate execution statistics (fill rates, slippage, PnL)."""
     from cortex.execution import get_execution_stats as _stats
 
     result = _stats()

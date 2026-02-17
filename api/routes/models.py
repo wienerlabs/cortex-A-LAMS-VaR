@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["models"])
 
 
-@router.get("/models/versions")
+@router.get("/models/versions", summary="List all model versions")
 async def list_all_versions():
     """List available model versions for all calibrated tokens."""
     versions = await _model_store.get_all_versions()
@@ -29,7 +29,7 @@ async def list_all_versions():
     return {"tokens": result}
 
 
-@router.get("/models/versions/{token}")
+@router.get("/models/versions/{token}", summary="List token model versions")
 async def list_token_versions(token: str):
     """List available model versions for a specific token."""
     if token not in _model_store:
@@ -53,7 +53,7 @@ async def list_token_versions(token: str):
     }
 
 
-@router.post("/models/rollback/{token}")
+@router.post("/models/rollback/{token}", summary="Rollback model version")
 async def rollback_model(token: str, version: int = Query(..., description="Version number to rollback to")):
     """Rollback a token's model to a specific version."""
     if token not in _model_store:

@@ -34,7 +34,7 @@ def broadcast_guardian_score(event: dict[str, Any]) -> None:
         _guardian_subscribers.remove(q)
 
 
-@router.get("/streams/events", response_model=StreamEventsResponse)
+@router.get("/streams/events", response_model=StreamEventsResponse, summary="Get recent events")
 def get_stream_events(
     limit: int = Query(50, ge=1, le=200),
     severity: str = Query(None, description="Filter by severity: info, warning, critical"),
@@ -55,7 +55,7 @@ def get_stream_events(
     )
 
 
-@router.get("/streams/status", response_model=StreamStatusResponse)
+@router.get("/streams/status", response_model=StreamStatusResponse, summary="Stream connection status")
 def get_stream_status():
     """Return stream connection status."""
     from cortex.data.streams import get_stream_status as _status
@@ -63,7 +63,7 @@ def get_stream_status():
     return StreamStatusResponse(**_status())
 
 
-@router.get("/guardian/stream")
+@router.get("/guardian/stream", summary="Guardian SSE stream")
 async def guardian_sse_stream():
     """SSE endpoint streaming Guardian risk score events in real time.
 

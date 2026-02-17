@@ -66,8 +66,12 @@ def _svj_calibrate_sync(req: SVJCalibrateRequest) -> dict:
     }
 
 
-@router.post("/svj/calibrate")
+@router.post("/svj/calibrate", response_model=SVJCalibrateResponse, summary="Calibrate SVJ model")
 async def svj_calibrate(req: SVJCalibrateRequest, async_mode: bool = Query(False)):
+    """Calibrate Stochastic Volatility with Jumps (Bates model) with optional Hawkes clustering.
+
+    Use async_mode=true for long calibrations — returns a task_id for polling.
+    """
     from api.tasks import create_task, run_in_background
 
     if async_mode:

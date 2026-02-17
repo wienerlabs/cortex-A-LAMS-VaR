@@ -26,8 +26,13 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["guardian"])
 
 
-@router.post("/guardian/assess", response_model=GuardianAssessResponse)
+@router.post("/guardian/assess", response_model=GuardianAssessResponse, summary="Assess trade risk")
 def guardian_assess(req: GuardianAssessRequest):
+    """Run unified risk assessment combining all calibrated models into a composite score.
+
+    Returns approval/veto decision with recommended position size, component scores,
+    and optional adversarial debate results.
+    """
     from cortex.guardian import _cache as guardian_cache
     from cortex.guardian import assess_trade
 
@@ -104,14 +109,18 @@ def guardian_assess(req: GuardianAssessRequest):
     )
 
 
-@router.get("/guardian/kelly-stats", response_model=KellyStatsResponse)
+@router.get("/guardian/kelly-stats", response_model=KellyStatsResponse, summary="Get Kelly criterion stats")
 def get_kelly_stats():
+    """Return current Kelly criterion position sizing statistics from trade history."""
     from cortex.guardian import get_kelly_stats as _get_stats
     return KellyStatsResponse(**_get_stats())
 
 
-@router.post("/guardian/trade-outcome")
+@router.post("/guardian/trade-outcome", summary="Record trade outcome")
 def record_trade_outcome(req: TradeOutcomeRequest):
+    """Record a completed trade outcome. Cross-wires to Kelly stats, debate priors,
+    and strategy circuit breakers for feedback learning.
+    """
     from cortex.guardian import record_trade_outcome as _record
     _record(
         pnl=req.pnl,
@@ -158,16 +167,18 @@ def record_trade_outcome(req: TradeOutcomeRequest):
     }
 
 
-@router.get("/guardian/circuit-breakers")
+@router.get("/guardian/circuit-breakers", summary="Get circuit breaker states")
 def get_circuit_breakers():
+    """Return current state of all circuit breakers (global and per-strategy)."""
     import time
     from cortex.circuit_breaker import get_all_states
     states = get_all_states()
     return {"breakers": states, "timestamp": time.time()}
 
 
-@router.post("/guardian/circuit-breakers/reset")
+@router.post("/guardian/circuit-breakers/reset", summary="Reset circuit breakers")
 def reset_circuit_breakers(name: str | None = None):
+    """Reset a specific circuit breaker by name, or all breakers if no name provided."""
     from cortex.circuit_breaker import reset_all, reset_breaker
     if name:
         ok = reset_breaker(name)

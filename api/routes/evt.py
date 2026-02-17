@@ -67,8 +67,12 @@ def _evt_calibrate_sync(req: EVTCalibrateRequest) -> dict:
     }
 
 
-@router.post("/evt/calibrate")
+@router.post("/evt/calibrate", response_model=EVTCalibrateResponse, summary="Calibrate EVT model")
 async def evt_calibrate(req: EVTCalibrateRequest, async_mode: bool = Query(False)):
+    """Fit a Generalized Pareto Distribution to the tail of a token's return distribution.
+
+    Use async_mode=true for long calibrations — returns a task_id for polling.
+    """
     from api.tasks import create_task, run_in_background
 
     if async_mode:

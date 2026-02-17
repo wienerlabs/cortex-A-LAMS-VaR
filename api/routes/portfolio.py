@@ -113,8 +113,12 @@ def _portfolio_calibrate_sync(req: PortfolioCalibrateRequest) -> dict:
     }
 
 
-@router.post("/portfolio/calibrate")
+@router.post("/portfolio/calibrate", response_model=PortfolioVaRResponse, summary="Calibrate portfolio model")
 async def calibrate_portfolio(req: PortfolioCalibrateRequest, async_mode: bool = Query(False)):
+    """Calibrate multivariate MSM model for a portfolio with optional copula fitting.
+
+    Use async_mode=true for long calibrations — returns a task_id for polling.
+    """
     from api.tasks import create_task, run_in_background
 
     if async_mode:
