@@ -55,10 +55,9 @@ export async function initRpcHealthStore(): Promise<void> {
   }
 
   try {
-    const ioredis = await import('ioredis');
-    const RedisClass = ioredis.default;
+    const { Redis } = await import('ioredis');
 
-    redisClient = new RedisClass(prodConfig.redis.url, {
+    redisClient = new Redis(prodConfig.redis.url, {
       maxRetriesPerRequest: 1,
       lazyConnect: true,
       connectTimeout: 5000,
