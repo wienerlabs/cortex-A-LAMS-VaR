@@ -1,9 +1,9 @@
 """
 Guardian Integration Layer — Unified risk veto endpoint for Cortex autonomous trading.
 
-Consolidates EVT (25%), SVJ (20%), Hawkes (20%), Regime (20%), and News (15%)
-risk assessments into a single composite score with circuit breaker logic
-and position sizing.
+Consolidates A-LAMS (25%), EVT (20%), SVJ (15%), Hawkes (15%), Regime (15%),
+and News (10%) risk assessments into a single composite score with circuit
+breaker logic, Kelly-criterion sizing, and adversarial debate validation.
 """
 from __future__ import annotations
 
@@ -680,4 +680,35 @@ def assess_trade(
 
     _cache.set(cache_key, result)
     return result
+
+
+# ── Kelly State Persistence ──────────────────────────────────────────
+
+_kelly_store: Any = None
+
+
+def _get_kelly_store():
+    """Lazy-init PersistentStore for Kelly trade history."""
+    global _kelly_store
+    if _kelly_store is None:
+        from cortex.persistence import PersistentStore
+        _kelly_store = PersistentStore("kelly")
+    return _kelly_store
+
+
+def persist_kelly_state() -> None:
+    """Snapshot Kelly trade history to Redis."""
+    store = _get_kelly_store()
+    store["trade_history"] = list(_trade_history)
+    logger.info("Persisted %d Kelly trade history entries to Redis", len(_trade_history))
+
+
+def restore_kelly_state() -> None:
+    """Restore Kelly trade history from Redis."""
+    store = _get_kelly_store()
+    data = store.get("trade_history")
+    if data:
+        _trade_history.clear()
+        _trade_history.extend(data[-500:])  # respect maxlen
+        logger.info("Restored %d Kelly trade history entries from Redis", len(_trade_history))
 

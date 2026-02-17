@@ -368,3 +368,78 @@ def reset_all() -> None:
         cb.reset()
     for ob in _outcome_breakers.values():
         ob.reset()
+
+
+# ── Persistence ──────────────────────────────────────────────────────
+
+_cb_store: Any = None
+
+
+def _get_cb_store():
+    """Lazy-init PersistentStore for circuit breaker snapshots."""
+    global _cb_store
+    if _cb_store is None:
+        from cortex.persistence import PersistentStore
+        _cb_store = PersistentStore("circuit_breaker")
+    return _cb_store
+
+
+def persist_cb_state() -> None:
+    """Snapshot all breaker states to Redis via PersistentStore."""
+    _ensure_breakers()
+    store = _get_cb_store()
+
+    score_snapshot: dict[str, dict] = {}
+    for name, cb in _breakers.items():
+        score_snapshot[name] = {
+            "state": cb.state.value,
+            "fail_count": cb.fail_count,
+            "opened_at": cb.opened_at,
+            "_history": cb._history[-100:],
+        }
+    store["score_breakers"] = score_snapshot
+
+    outcome_snapshot: dict[str, dict] = {}
+    for strategy, ob in _outcome_breakers.items():
+        outcome_snapshot[strategy] = {
+            "state": ob.state.value,
+            "consecutive_losses": ob.consecutive_losses,
+            "opened_at": ob.opened_at,
+            "total_trades": ob.total_trades,
+            "total_losses": ob.total_losses,
+            "total_wins": ob.total_wins,
+            "_outcomes": list(ob._outcomes),
+        }
+    store["outcome_breakers"] = outcome_snapshot
+    logger.info("Circuit breaker states persisted to Redis")
+
+
+def restore_cb_state() -> None:
+    """Reload breaker states from Redis snapshot into module-level singletons."""
+    _ensure_breakers()
+    store = _get_cb_store()
+
+    score_data = store.get("score_breakers")
+    if score_data:
+        for name, snap in score_data.items():
+            if name in _breakers:
+                cb = _breakers[name]
+                cb.state = CBState(snap["state"])
+                cb.fail_count = snap["fail_count"]
+                cb.opened_at = snap.get("opened_at")
+                cb._history = snap.get("_history", [])
+        logger.info("Restored %d score-based circuit breaker(s) from Redis", len(score_data))
+
+    outcome_data = store.get("outcome_breakers")
+    if outcome_data:
+        for strategy, snap in outcome_data.items():
+            if strategy in _outcome_breakers:
+                ob = _outcome_breakers[strategy]
+                ob.state = CBState(snap["state"])
+                ob.consecutive_losses = snap["consecutive_losses"]
+                ob.opened_at = snap.get("opened_at")
+                ob.total_trades = snap["total_trades"]
+                ob.total_losses = snap["total_losses"]
+                ob.total_wins = snap["total_wins"]
+                ob._outcomes = deque(snap.get("_outcomes", []), maxlen=100)
+        logger.info("Restored %d outcome-based circuit breaker(s) from Redis", len(outcome_data))
