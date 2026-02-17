@@ -1,0 +1,936 @@
+"""
+Hawkes self-exciting point process for volatility clustering and flash crash contagion.
+
+Models how extreme market events cluster in time — one crash increases the
+probability of subsequent crashes. Integrates with MSM-VaR to provide
+intensity-adjusted risk measures.
+
+Mathematics:
+  λ(t) = μ + Σ_{t_i < t} α·exp(-β·(t - t_i))
+
+  μ = baseline intensity (background event rate)
+  α = excitation magnitude (jump in intensity per event)
+  β = decay rate (how fast excitation fades)
+  α/β = branching ratio (must be < 1 for stationarity)
+
+  Log-likelihood:
+    ℓ = Σ_i log λ(t_i) - ∫_0^T λ(t) dt
+      = Σ_i log λ(t_i) - μT - (α/β) Σ_i [1 - exp(-β(T - t_i))]
+"""
+
+from __future__ import annotations
+
+import logging
+import math
+
+import numpy as np
+import pandas as pd
+from scipy.optimize import minimize
+
+from cortex.config import HAWKES_ENGINE
+
+logger = logging.getLogger(__name__)
+
+# ── Optional accelerator imports ──────────────────────────────────────
+
+_HAS_NUMBA = False
+try:
+    import numba
+    _HAS_NUMBA = True
+except ImportError:
+    logger.info("numba not installed — Hawkes JIT acceleration unavailable, using native")
+
+_HAS_TICK = False
+try:
+    from tick.hawkes import HawkesExpKern, SimuHawkesExpKernels
+    _HAS_TICK = True
+except ImportError:
+    logger.info("tick not installed — tick-based Hawkes estimation unavailable, using native")
+
+
+def _resolve_engine() -> str:
+    """Return the effective engine, falling back to native if requested engine is unavailable."""
+    engine = HAWKES_ENGINE.lower()
+    if engine == "numba" and not _HAS_NUMBA:
+        logger.warning("HAWKES_ENGINE=numba but numba not installed — falling back to native")
+        return "native"
+    if engine == "tick" and not _HAS_TICK:
+        logger.warning("HAWKES_ENGINE=tick but tick not installed — falling back to native")
+        return "native"
+    return engine
+
+
+def _compute_intensity_native(
+    events: np.ndarray, params: tuple[float, float, float], t_eval: np.ndarray
+) -> np.ndarray:
+    """Compute Hawkes intensity λ(t) — pure-Python/NumPy implementation."""
+    mu, alpha, beta = params
+    n_ev = len(events)
+    n_pt = len(t_eval)
+
+    if n_ev == 0:
+        return np.full(n_pt, mu, dtype=float)
+
+    intensity = np.empty(n_pt, dtype=float)
+
+    tags = np.concatenate([np.zeros(n_ev, dtype=np.int8), np.ones(n_pt, dtype=np.int8)])
+    times = np.concatenate([events, t_eval])
+    order = np.argsort(times, kind="mergesort")
+
+    A = 0.0
+    prev_t = times[order[0]]
+
+    for idx in order:
+        t = times[idx]
+        dt = t - prev_t
+        if dt > 0:
+            A *= np.exp(-beta * dt)
+            prev_t = t
+        if tags[idx] == 0:
+            A += 1.0
+        else:
+            orig = idx - n_ev
+            intensity[orig] = mu + alpha * A
+
+    return intensity
+
+
+# ── Numba-accelerated inner loop ──────────────────────────────────────
+
+if _HAS_NUMBA:
+    @numba.jit(nopython=True, cache=True)
+    def _intensity_loop_numba(
+        times: np.ndarray,
+        tags: np.ndarray,
+        order: np.ndarray,
+        n_ev: int,
+        mu: float,
+        alpha: float,
+        beta: float,
+    ) -> np.ndarray:
+        """JIT-compiled inner loop for Hawkes intensity computation."""
+        n_total = len(order)
+        n_pt = len(times) - n_ev
+        intensity = np.empty(n_pt, dtype=np.float64)
+
+        A = 0.0
+        prev_t = times[order[0]]
+
+        for i in range(n_total):
+            idx = order[i]
+            t = times[idx]
+            dt = t - prev_t
+            if dt > 0.0:
+                A *= math.exp(-beta * dt)
+                prev_t = t
+            if tags[idx] == 0:
+                A += 1.0
+            else:
+                orig = idx - n_ev
+                intensity[orig] = mu + alpha * A
+
+        return intensity
+
+
+def _compute_intensity_numba(
+    events: np.ndarray, params: tuple[float, float, float], t_eval: np.ndarray
+) -> np.ndarray:
+    """Compute Hawkes intensity λ(t) — numba JIT-accelerated version."""
+    mu, alpha, beta = params
+    n_ev = len(events)
+    n_pt = len(t_eval)
+
+    if n_ev == 0:
+        return np.full(n_pt, mu, dtype=np.float64)
+
+    tags = np.concatenate([
+        np.zeros(n_ev, dtype=np.int8),
+        np.ones(n_pt, dtype=np.int8),
+    ])
+    times = np.concatenate([events.astype(np.float64), t_eval.astype(np.float64)])
+    order = np.argsort(times, kind="mergesort")
+
+    return _intensity_loop_numba(times, tags, order, n_ev, mu, alpha, beta)
+
+
+def _compute_intensity(
+    events: np.ndarray, params: tuple[float, float, float], t_eval: np.ndarray
+) -> np.ndarray:
+    """Compute Hawkes intensity λ(t) — dispatches to configured engine."""
+    engine = _resolve_engine()
+    if engine == "numba":
+        return _compute_intensity_numba(events, params, t_eval)
+    return _compute_intensity_native(events, params, t_eval)
+
+
+def _log_likelihood(params: np.ndarray, events: np.ndarray, T: float) -> float:
+    """Negative log-likelihood for Hawkes process (for minimization)."""
+    mu, alpha, beta = params
+    if mu <= 0 or alpha <= 0 or beta <= 0 or alpha / beta >= 1.0:
+        return 1e15
+
+    n = len(events)
+    if n == 0:
+        return mu * T
+
+    # Recursive computation of intensity at each event time
+    # A_i = Σ_{j<i} exp(-β(t_i - t_j)) = exp(-β(t_i - t_{i-1})) * (1 + A_{i-1})
+    A = np.zeros(n)
+    for i in range(1, n):
+        A[i] = np.exp(-beta * (events[i] - events[i - 1])) * (1 + A[i - 1])
+
+    lambdas = mu + alpha * A
+    lambdas = np.maximum(lambdas, 1e-15)
+
+    # ℓ = Σ log λ(t_i) - μT - (α/β) Σ [1 - exp(-β(T - t_i))]
+    ll = np.sum(np.log(lambdas))
+    ll -= mu * T
+    ll -= (alpha / beta) * np.sum(1 - np.exp(-beta * (T - events)))
+
+    return -ll  # negative for minimization
+
+
+def extract_events(
+    returns: pd.Series | np.ndarray,
+    threshold_percentile: float = 5.0,
+    use_absolute: bool = True,
+) -> dict:
+    """
+    Extract extreme events from return series for Hawkes process fitting.
+
+    Args:
+        returns: Return series (percentage).
+        threshold_percentile: Percentile for event detection (default 5% = large losses).
+        use_absolute: If True, use |returns| > threshold (both tails).
+                      If False, use returns < -threshold (left tail only).
+
+    Returns:
+        Dict with event_times (normalized to [0, T]), event_returns,
+        threshold, n_events, T, dates (if available).
+    """
+    if isinstance(returns, pd.Series):
+        values = returns.values.astype(float)
+        dates = returns.index
+    else:
+        values = np.asarray(returns, dtype=float)
+        dates = None
+
+    n = len(values)
+    T = float(n)
+
+    if use_absolute:
+        threshold = float(np.percentile(np.abs(values), 100 - threshold_percentile))
+        mask = np.abs(values) > threshold
+    else:
+        threshold = float(np.percentile(values, threshold_percentile))
+        mask = values < threshold
+
+    event_indices = np.where(mask)[0]
+    event_times = event_indices.astype(float)
+    event_returns = values[event_indices]
+
+    return {
+        "event_times": event_times,
+        "event_returns": event_returns,
+        "event_indices": event_indices,
+        "threshold": threshold,
+        "n_events": len(event_indices),
+        "T": T,
+        "dates": dates[event_indices].tolist() if dates is not None else None,
+    }
+
+
+def fit_hawkes(
+    events: np.ndarray,
+    T: float,
+    method: str = "mle",
+) -> dict:
+    """
+    Fit Hawkes process parameters via MLE.
+
+    Args:
+        events: 1D array of event times in [0, T].
+        T: Total observation window length.
+        method: Estimation method ('mle').
+
+    Returns:
+        Dict with mu, alpha, beta, branching_ratio, log_likelihood,
+        aic, bic, n_events, T, half_life, stationarity.
+    """
+    n = len(events)
+    if n < 5:
+        raise ValueError(f"Need ≥5 events for Hawkes fitting, got {n}")
+
+    events = np.sort(events)
+
+    # Initial guesses: mu ~ n/T * 0.5, alpha ~ 0.3, beta ~ 1.0
+    mu0 = n / T * 0.5
+    alpha0 = 0.3
+    beta0 = 1.0
+
+    best_result = None
+    best_nll = float("inf")
+
+    starts = [
+        [mu0, alpha0, beta0],
+        [mu0 * 0.3, 0.5, 2.0],
+        [mu0 * 1.5, 0.1, 0.5],
+        [mu0, 0.7, 3.0],
+    ]
+
+    for x0 in starts:
+        try:
+            result = minimize(
+                _log_likelihood,
+                x0=x0,
+                args=(events, T),
+                method="L-BFGS-B",
+                bounds=[(1e-6, None), (1e-6, None), (1e-6, None)],
+                options={"maxiter": 500},
+            )
+            if result.fun < best_nll:
+                best_nll = result.fun
+                best_result = result
+        except Exception as e:
+            logger.debug("Hawkes MLE attempt failed: %s", e)
+            continue
+
+    if best_result is None:
+        raise RuntimeError("Hawkes MLE optimization failed for all starting points")
+
+    mu, alpha, beta = best_result.x
+    branching_ratio = alpha / beta
+    ll = -best_nll
+    n_params = 3
+
+    return {
+        "mu": float(mu),
+        "alpha": float(alpha),
+        "beta": float(beta),
+        "branching_ratio": float(branching_ratio),
+        "log_likelihood": float(ll),
+        "aic": float(2 * n_params - 2 * ll),
+        "bic": float(n_params * np.log(max(n, 1)) - 2 * ll),
+        "n_events": n,
+        "T": T,
+        "half_life": float(np.log(2) / beta),
+        "stationary": bool(branching_ratio < 1.0),
+    }
+
+
+def fit_hawkes_tick(
+    events: np.ndarray,
+    T: float,
+) -> dict:
+    """Fit Hawkes process using tick library's HawkesExpKern estimator.
+
+    Requires the ``tick`` package. Falls back to MLE-based ``fit_hawkes()``
+    if tick is unavailable.
+
+    Returns the same dict schema as ``fit_hawkes()`` for drop-in compatibility.
+    """
+    if not _HAS_TICK:
+        logger.warning("tick not installed — falling back to native MLE fit_hawkes()")
+        return fit_hawkes(events, T)
+
+    n = len(events)
+    if n < 5:
+        raise ValueError(f"Need ≥5 events for Hawkes fitting, got {n}")
+
+    events_sorted = np.sort(events)
+    timestamps = [events_sorted]
+
+    learner = HawkesExpKern(decays=1.0, penalty="none", max_iter=500, tol=1e-8)
+    learner.fit(timestamps, end_times=T)
+
+    mu = float(learner.baseline[0])
+    alpha = float(learner.adjacency[0, 0])
+    beta = 1.0  # tick uses fixed decay passed via `decays`
+
+    mu = max(mu, 1e-6)
+    alpha = max(alpha, 1e-6)
+    branching_ratio = alpha / beta
+
+    # Compute log-likelihood using our own function for consistency
+    ll = -_log_likelihood(np.array([mu, alpha, beta]), events_sorted, T)
+    n_params = 3
+
+    return {
+        "mu": mu,
+        "alpha": alpha,
+        "beta": beta,
+        "branching_ratio": float(branching_ratio),
+        "log_likelihood": float(ll),
+        "aic": float(2 * n_params - 2 * ll),
+        "bic": float(n_params * np.log(max(n, 1)) - 2 * ll),
+        "n_events": n,
+        "T": T,
+        "half_life": float(np.log(2) / beta),
+        "stationary": bool(branching_ratio < 1.0),
+    }
+
+
+def hawkes_intensity(
+    events: np.ndarray,
+    params: dict,
+    t_eval: np.ndarray | None = None,
+    T: float | None = None,
+    n_points: int = 500,
+) -> dict:
+    """
+    Compute Hawkes intensity function λ(t) over time.
+
+    Args:
+        events: Event times array.
+        params: Output of fit_hawkes() (needs mu, alpha, beta).
+        t_eval: Specific times to evaluate. If None, uses linspace(0, T, n_points).
+        T: End of observation window (required if t_eval is None).
+        n_points: Number of evaluation points if t_eval is None.
+
+    Returns:
+        Dict with t_eval, intensity, current_intensity, baseline,
+        intensity_ratio, peak_intensity, mean_intensity.
+    """
+    mu, alpha, beta = params["mu"], params["alpha"], params["beta"]
+
+    if t_eval is None:
+        if T is None:
+            T = params.get("T", float(events[-1]) + 1 if len(events) > 0 else 1.0)
+        t_eval = np.linspace(0, T, n_points)
+
+    intensity = _compute_intensity(events, (mu, alpha, beta), t_eval)
+    current = float(intensity[-1]) if len(intensity) > 0 else mu
+
+    return {
+        "t_eval": t_eval.tolist(),
+        "intensity": intensity.tolist(),
+        "current_intensity": current,
+        "baseline": mu,
+        "intensity_ratio": current / mu if mu > 1e-12 else 1.0,
+        "peak_intensity": float(np.max(intensity)),
+        "mean_intensity": float(np.mean(intensity)),
+    }
+
+
+def hawkes_var_adjustment(
+    base_var: float,
+    current_intensity: float,
+    baseline_intensity: float,
+    max_multiplier: float = 3.0,
+) -> dict:
+    """
+    Adjust VaR using Hawkes intensity ratio.
+
+    When intensity is elevated (post-crash clustering), VaR should be wider.
+    Multiplier = min(λ_current / λ_baseline, max_multiplier).
+
+    Args:
+        base_var: Base VaR from MSM model (negative number).
+        current_intensity: Current Hawkes intensity λ(t_now).
+        baseline_intensity: Baseline intensity μ.
+        max_multiplier: Cap on the adjustment multiplier.
+
+    Returns:
+        Dict with adjusted_var, base_var, multiplier, intensity_ratio.
+    """
+    if baseline_intensity <= 1e-12:
+        ratio = 1.0
+    else:
+        ratio = current_intensity / baseline_intensity
+
+    multiplier = min(ratio, max_multiplier)
+    # VaR is negative, so multiplying by >1 makes it more negative (wider)
+    adjusted_var = base_var * multiplier
+
+    return {
+        "adjusted_var": float(adjusted_var),
+        "base_var": float(base_var),
+        "multiplier": float(multiplier),
+        "intensity_ratio": float(ratio),
+        "capped": bool(ratio > max_multiplier),
+    }
+
+
+def detect_clusters(
+    events: np.ndarray,
+    params: dict,
+    gap_threshold: float | None = None,
+) -> list[dict]:
+    """
+    Identify temporal clusters of extreme events.
+
+    Events separated by less than gap_threshold are grouped into the same cluster.
+    Default gap = 2 × half_life (events within two decay periods are related).
+
+    Args:
+        events: Sorted event times array.
+        params: Output of fit_hawkes() (needs beta for half_life).
+        gap_threshold: Max gap between events in same cluster.
+                       If None, uses 2 × half_life.
+
+    Returns:
+        List of cluster dicts with start_time, end_time, n_events,
+        duration, peak_intensity.
+    """
+    if len(events) == 0:
+        return []
+
+    events = np.sort(events)
+
+    if gap_threshold is None:
+        beta = params["beta"]
+        gap_threshold = 2.0 * np.log(2) / beta
+
+    clusters: list[dict] = []
+    cluster_start = events[0]
+    cluster_events = [events[0]]
+
+    for i in range(1, len(events)):
+        if events[i] - events[i - 1] <= gap_threshold:
+            cluster_events.append(events[i])
+        else:
+            if len(cluster_events) >= 2:
+                t_eval = np.array(cluster_events)
+                intensity = _compute_intensity(
+                    t_eval, (params["mu"], params["alpha"], params["beta"]), t_eval
+                )
+                clusters.append({
+                    "cluster_id": len(clusters),
+                    "start_time": float(cluster_events[0]),
+                    "end_time": float(cluster_events[-1]),
+                    "n_events": len(cluster_events),
+                    "duration": float(cluster_events[-1] - cluster_events[0]),
+                    "peak_intensity": float(np.max(intensity)),
+                })
+            cluster_start = events[i]
+            cluster_events = [events[i]]
+
+    # Handle last cluster
+    if len(cluster_events) >= 2:
+        t_eval = np.array(cluster_events)
+        intensity = _compute_intensity(
+            t_eval, (params["mu"], params["alpha"], params["beta"]), t_eval
+        )
+        clusters.append({
+            "cluster_id": len(clusters),
+            "start_time": float(cluster_events[0]),
+            "end_time": float(cluster_events[-1]),
+            "n_events": len(cluster_events),
+            "duration": float(cluster_events[-1] - cluster_events[0]),
+            "peak_intensity": float(np.max(intensity)),
+        })
+
+    return clusters
+
+
+def simulate_hawkes(
+    params: dict,
+    T: float,
+    seed: int = 42,
+) -> dict:
+    """
+    Simulate Hawkes process via Ogata's thinning algorithm.
+
+    Args:
+        params: Dict with mu, alpha, beta.
+        T: Simulation horizon.
+        seed: Random seed for reproducibility.
+
+    Returns:
+        Dict with event_times, n_events, intensity_path (sampled).
+    """
+    rng = np.random.default_rng(seed)
+    mu, alpha, beta = params["mu"], params["alpha"], params["beta"]
+
+    event_times: list[float] = []
+    t = 0.0
+
+    # Upper bound on intensity starts at mu
+    lambda_bar = mu
+
+    # O(1) recursive accumulator per candidate (replaces O(n) inner loop)
+    A = 0.0
+    while t < T:
+        u = rng.uniform()
+        dt = -np.log(u) / lambda_bar
+        t += dt
+
+        if t >= T:
+            break
+
+        A *= np.exp(-beta * dt)
+        lambda_t = mu + alpha * A
+
+        if rng.uniform() <= lambda_t / lambda_bar:
+            event_times.append(t)
+            A += 1.0
+            lambda_bar = lambda_t + alpha
+        else:
+            lambda_bar = lambda_t
+
+    events_arr = np.array(event_times) if event_times else np.array([])
+
+    # Sample intensity at regular points for visualization
+    n_sample = min(500, max(100, int(T)))
+    t_sample = np.linspace(0, T, n_sample)
+    intensity_path = _compute_intensity(events_arr, (mu, alpha, beta), t_sample)
+
+    return {
+        "event_times": events_arr,
+        "n_events": len(event_times),
+        "T": T,
+        "intensity_t": t_sample.tolist(),
+        "intensity_path": intensity_path.tolist(),
+    }
+
+
+def simulate_hawkes_tick(
+    params: dict,
+    T: float,
+    seed: int = 42,
+) -> dict:
+    """Simulate Hawkes process using tick library's SimuHawkesExpKernels.
+
+    Requires the ``tick`` package. Falls back to Ogata thinning via
+    ``simulate_hawkes()`` if tick is unavailable.
+
+    Returns the same dict schema as ``simulate_hawkes()``.
+    """
+    if not _HAS_TICK:
+        logger.warning("tick not installed — falling back to native simulate_hawkes()")
+        return simulate_hawkes(params, T, seed)
+
+    mu, alpha, beta = params["mu"], params["alpha"], params["beta"]
+
+    baseline = np.array([mu])
+    adjacency = np.array([[alpha]])
+    decays = np.array([[beta]])
+
+    sim = SimuHawkesExpKernels(
+        adjacency=adjacency,
+        decays=decays,
+        baseline=baseline,
+        end_time=T,
+        seed=seed,
+        verbose=False,
+    )
+    sim.simulate()
+
+    event_times = sim.timestamps[0] if len(sim.timestamps) > 0 else np.array([])
+    events_arr = np.asarray(event_times, dtype=np.float64)
+
+    n_sample = min(500, max(100, int(T)))
+    t_sample = np.linspace(0, T, n_sample)
+    intensity_path = _compute_intensity(events_arr, (mu, alpha, beta), t_sample)
+
+    return {
+        "event_times": events_arr,
+        "n_events": len(events_arr),
+        "T": T,
+        "intensity_t": t_sample.tolist(),
+        "intensity_path": intensity_path.tolist(),
+    }
+
+
+def detect_flash_crash_risk(
+    events: np.ndarray,
+    params: dict,
+    t_now: float | None = None,
+    lookback_window: float | None = None,
+) -> dict:
+    """
+    Real-time contagion risk score based on current Hawkes intensity.
+
+    Maps the intensity ratio λ(t)/μ to a [0, 1] risk score and categorical
+    risk level. Higher scores indicate elevated flash crash clustering risk.
+
+    Args:
+        events: Event times array.
+        params: Output of fit_hawkes() (needs mu, alpha, beta).
+        t_now: Current time. If None, uses max(events) or T.
+        lookback_window: Window for counting recent events. Default: 5 × half_life.
+
+    Returns:
+        Dict with contagion_risk_score (0-1), current_intensity, baseline,
+        excitation_level, intensity_ratio, recent_event_count,
+        risk_level (low/medium/high/critical).
+    """
+    mu = params["mu"]
+    alpha = params["alpha"]
+    beta = params["beta"]
+    half_life = np.log(2) / beta
+
+    if t_now is None:
+        t_now = float(events[-1]) if len(events) > 0 else params.get("T", 1.0)
+
+    if lookback_window is None:
+        lookback_window = 5.0 * half_life
+
+    # Current intensity at t_now
+    t_eval = np.array([t_now])
+    intensity = _compute_intensity(events, (mu, alpha, beta), t_eval)
+    current_intensity = float(intensity[0])
+
+    # Excitation = how much above baseline
+    excitation_level = current_intensity - mu
+
+    # Intensity ratio
+    intensity_ratio = current_intensity / mu if mu > 1e-12 else 1.0
+
+    # Risk score: map intensity_ratio to [0, 1]
+    # At baseline (ratio=1) → score=0, at critical (ratio=max_ratio) → score=1
+    # max_ratio corresponds to when branching ratio approaches 1
+    branching_ratio = alpha / beta
+    max_ratio = max(1.0 / (1.0 - branching_ratio), 5.0) if branching_ratio < 1.0 else 5.0
+    score = min(1.0, max(0.0, (intensity_ratio - 1.0) / (max_ratio - 1.0)))
+
+    # Categorical risk level
+    if score < 0.25:
+        risk_level = "low"
+    elif score < 0.50:
+        risk_level = "medium"
+    elif score < 0.75:
+        risk_level = "high"
+    else:
+        risk_level = "critical"
+
+    # Count recent events in lookback window
+    window_start = t_now - lookback_window
+    recent_event_count = int(np.sum(events >= window_start)) if len(events) > 0 else 0
+
+    return {
+        "contagion_risk_score": float(score),
+        "current_intensity": current_intensity,
+        "baseline": mu,
+        "excitation_level": float(excitation_level),
+        "intensity_ratio": float(intensity_ratio),
+        "recent_event_count": recent_event_count,
+        "risk_level": risk_level,
+    }
+
+
+# ── Multivariate Hawkes Process (Wave 10.3) ──────────────────────────
+
+
+def fit_multivariate_hawkes(
+    event_times_by_type: dict[str, np.ndarray],
+    T: float | None = None,
+) -> dict:
+    """Fit multivariate Hawkes process with cross-excitation.
+
+    Each event type has its own baseline μ_k and can excite other types
+    via cross-excitation parameters α_{k,l} and β_{k,l}.
+
+    For simplicity, uses univariate MLE per type for baseline + self-excitation,
+    then estimates cross-excitation from empirical triggering rates.
+
+    Args:
+        event_times_by_type: Dict mapping event_type -> sorted event times.
+        T: Total observation window. If None, inferred from data.
+
+    Returns:
+        Dict with mu (per type), cross_excitation matrix, branching_matrix,
+        spectral_radius, stationary flag.
+    """
+    types = sorted(event_times_by_type.keys())
+    n_types = len(types)
+
+    if n_types == 0:
+        return {
+            "event_types": [],
+            "mu": {},
+            "cross_excitation": [],
+            "branching_matrix": [],
+            "spectral_radius": 0.0,
+            "stationary": True,
+            "n_events_per_type": {},
+        }
+
+    # Infer T from data
+    if T is None:
+        all_times = np.concatenate([v for v in event_times_by_type.values() if len(v) > 0])
+        T = float(np.max(all_times)) + 1.0 if len(all_times) > 0 else 1.0
+
+    mu_dict: dict[str, float] = {}
+    self_params: dict[str, dict] = {}
+    n_events_per_type: dict[str, int] = {}
+
+    # Fit univariate Hawkes per type for baseline + self-excitation
+    for etype in types:
+        events = event_times_by_type[etype]
+        n_events_per_type[etype] = len(events)
+
+        if len(events) >= 5:
+            try:
+                result = fit_hawkes(events, T)
+                mu_dict[etype] = result["mu"]
+                self_params[etype] = {"alpha": result["alpha"], "beta": result["beta"]}
+            except Exception:
+                mu_dict[etype] = len(events) / T
+                self_params[etype] = {"alpha": 0.1, "beta": 1.0}
+        else:
+            mu_dict[etype] = len(events) / T if T > 0 else 0.0
+            self_params[etype] = {"alpha": 0.1, "beta": 1.0}
+
+    # Estimate cross-excitation from empirical triggering
+    cross_excitation: list[dict] = []
+    branching_matrix = np.zeros((n_types, n_types))
+
+    for i, src in enumerate(types):
+        src_events = event_times_by_type[src]
+        src_alpha = self_params[src]["alpha"]
+        src_beta = self_params[src]["beta"]
+
+        for j, tgt in enumerate(types):
+            tgt_events = event_times_by_type[tgt]
+
+            if i == j:
+                # Self-excitation
+                alpha = src_alpha
+                beta = src_beta
+            else:
+                # Cross-excitation: count how often tgt events follow src events
+                # within a decay window
+                if len(src_events) == 0 or len(tgt_events) == 0:
+                    alpha = 0.0
+                    beta = 1.0
+                else:
+                    decay_window = 2.0 * np.log(2) / src_beta if src_beta > 0 else 10.0
+                    trigger_count = 0
+                    for t_src in src_events:
+                        mask = (tgt_events > t_src) & (tgt_events <= t_src + decay_window)
+                        trigger_count += int(np.sum(mask))
+
+                    # Empirical triggering rate
+                    alpha = trigger_count / max(len(src_events), 1) * 0.5
+                    beta = src_beta
+
+            branching_ratio = alpha / beta if beta > 0 else 0.0
+            branching_matrix[i, j] = branching_ratio
+
+            cross_excitation.append({
+                "source": src,
+                "target": tgt,
+                "alpha": float(alpha),
+                "beta": float(beta),
+            })
+
+    # Spectral radius of branching matrix (must be < 1 for stationarity)
+    eigenvalues = np.linalg.eigvals(branching_matrix)
+    spectral_radius = float(np.max(np.abs(eigenvalues)))
+
+    return {
+        "event_types": types,
+        "mu": mu_dict,
+        "cross_excitation": cross_excitation,
+        "branching_matrix": branching_matrix.tolist(),
+        "spectral_radius": spectral_radius,
+        "stationary": spectral_radius < 1.0,
+        "n_events_per_type": n_events_per_type,
+    }
+
+
+def multivariate_intensity(
+    event_times_by_type: dict[str, np.ndarray],
+    fit_result: dict,
+    t_now: float | None = None,
+) -> dict[str, float]:
+    """Compute current intensity for each event type in multivariate Hawkes.
+
+    Args:
+        event_times_by_type: Dict mapping event_type -> sorted event times.
+        fit_result: Output of fit_multivariate_hawkes().
+        t_now: Current time. If None, uses max of all event times.
+
+    Returns:
+        Dict mapping event_type -> current intensity λ_k(t_now).
+    """
+    types = fit_result["event_types"]
+    mu = fit_result["mu"]
+
+    if not types:
+        return {}
+
+    if t_now is None:
+        all_times = []
+        for v in event_times_by_type.values():
+            if len(v) > 0:
+                all_times.append(float(v[-1]))
+        t_now = max(all_times) if all_times else 0.0
+
+    # Build cross-excitation lookup
+    cross_map: dict[tuple[str, str], dict] = {}
+    for entry in fit_result["cross_excitation"]:
+        cross_map[(entry["source"], entry["target"])] = entry
+
+    intensities: dict[str, float] = {}
+    for tgt in types:
+        lam = mu.get(tgt, 0.0)
+        for src in types:
+            key = (src, tgt)
+            if key not in cross_map:
+                continue
+            alpha = cross_map[key]["alpha"]
+            beta = cross_map[key]["beta"]
+            src_events = event_times_by_type.get(src, np.array([]))
+            for t_i in src_events:
+                dt = t_now - t_i
+                if dt > 0:
+                    lam += alpha * np.exp(-beta * dt)
+        intensities[tgt] = float(lam)
+
+    return intensities
+
+
+def flash_crash_risk_onchain(
+    event_times_by_type: dict[str, np.ndarray],
+    fit_result: dict,
+    t_now: float | None = None,
+) -> dict:
+    """Flash crash risk score incorporating on-chain event intensity.
+
+    Maps the maximum intensity ratio across all event types to a 0-100 score.
+    """
+    types = fit_result["event_types"]
+    mu = fit_result["mu"]
+
+    if not types:
+        return {
+            "flash_crash_score": 0.0,
+            "current_intensities": {},
+            "baseline_intensities": {},
+            "dominant_event_type": "none",
+            "risk_level": "low",
+        }
+
+    current = multivariate_intensity(event_times_by_type, fit_result, t_now)
+
+    max_ratio = 0.0
+    dominant = types[0]
+    for etype in types:
+        baseline = mu.get(etype, 1e-12)
+        if baseline > 1e-12:
+            ratio = current.get(etype, 0.0) / baseline
+            if ratio > max_ratio:
+                max_ratio = ratio
+                dominant = etype
+
+    # Map ratio to 0-100 score (ratio=1 -> 0, ratio=5+ -> 100)
+    score = min(100.0, max(0.0, (max_ratio - 1.0) / 4.0 * 100.0))
+
+    if score < 25:
+        risk_level = "low"
+    elif score < 50:
+        risk_level = "medium"
+    elif score < 75:
+        risk_level = "high"
+    else:
+        risk_level = "critical"
+
+    return {
+        "flash_crash_score": float(score),
+        "current_intensities": current,
+        "baseline_intensities": {k: float(v) for k, v in mu.items()},
+        "dominant_event_type": dominant,
+        "risk_level": risk_level,
+    }

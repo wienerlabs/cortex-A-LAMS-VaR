@@ -1,0 +1,12 @@
+[package]
+name = "cortex-token"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "cortex_token"
+
+[dependencies]
+anchor-lang = "0.28.0"
+anchor-spl = "0.28.0"

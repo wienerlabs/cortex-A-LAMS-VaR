@@ -1,0 +1,45 @@
+# Domain Parameters for DeFi Protocols
+# These parameters define protocol-specific settings
+
+uniswap_v3:
+  # Fee tiers: 0.05%, 0.3%, 1%
+  fee_tiers: [0.0005, 0.003, 0.01]
+  router_address: "0xE592427A0AEce92De3Edee1F18E0157C05861564"
+  quoter_address: "0xb27308f9F90D607463bb33eA1BeBb41C27CE5AB6"
+  factory_address: "0x1F98431c8aD98523631AE4a59f267346ea31F984"
+
+sushiswap:
+  fee: 0.003  # 0.3%
+  router_address: "0xd9e1cE17f2641f24aE83637ab66a2cca9C378B9F"
+  factory_address: "0xC0AEe478e3658e2610c5F7A4A2E1777cE9e4f2Ac"
+
+curve:
+  # Main pool addresses
+  pools:
+    3pool: "0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7"
+    steth: "0xDC24316b9AE028F1497c275EB9192a3Ea0f67022"
+    frax: "0xd632f22692FaC7611d2AA1C0D552930D43CAEd3B"
+
+aave_v3:
+  pool_address: "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2"
+  pool_data_provider: "0x7B4EB56E7CD4b454BA8ff71E4518426369a138a3"
+
+compound_v3:
+  comet_usdc: "0xc3d688B66703497DAA19211EEdff47f25384cdc3"
+  comet_eth: "0xA17581A9E3356d9A858b789D68B4d866e593aE94"
+
+# Trading constants
+constants:
+  min_profit_threshold: 0.003  # 0.3% minimum profit
+  max_gas_gwei: 50             # Maximum gas price to execute
+  min_liquidity_usd: 100000    # Minimum pool liquidity
+  max_slippage: 0.005          # 0.5% max slippage
+  
+# Token addresses (Ethereum mainnet)
+tokens:
+  WETH: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
+  USDC: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
+  USDT: "0xdAC17F958D2ee523a2206206994597C13D831ec7"
+  DAI: "0x6B175474E89094C44Da98b954EescdeCB5BE3d1f"
+  WBTC: "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599"
+

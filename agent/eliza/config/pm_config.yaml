@@ -1,0 +1,91 @@
+# =============================================================================
+# PM (PORTFOLIO MANAGER) APPROVAL WORKFLOW CONFIGURATION
+# =============================================================================
+# Human-in-the-loop approval system for critical trades.
+# All thresholds are dynamically loaded and can be updated at runtime.
+# =============================================================================
+
+# Global enable/disable for PM approval workflow
+enabled: true
+
+# =============================================================================
+# APPROVAL TIMEOUT
+# =============================================================================
+# How long to wait for PM approval before trade expires (seconds)
+approval_timeout_seconds: 300  # 5 minutes
+
+# =============================================================================
+# APPROVAL RULES
+# =============================================================================
+rules:
+  # Size-based thresholds (in USD)
+  # Trades >= this amount require approval
+  min_position_usd: 1000
+  
+  # Percentage-based thresholds
+  # Trades >= this % of portfolio require approval
+  min_percentage_portfolio: 10
+  
+  # Risk-based auto-approve limits
+  # If exceeded, trade requires approval even if small
+  max_volatility_auto: 30       # 30% volatility = needs approval
+  min_confidence_auto: 70       # Below 70% confidence = needs approval
+  max_risk_score_auto: 70       # Above 70 risk score = needs approval
+  
+  # Strategy-based rules
+  # These strategies ALWAYS require PM approval
+  always_approve:
+    - perps      # Perpetuals are high risk
+  
+  # These strategies NEVER require PM approval (auto-approve)
+  never_approve:
+    - lending    # Lending is lower risk
+    - lp         # LP auto-approved for testing
+
+# =============================================================================
+# AUTO-APPROVE BEHAVIOR
+# =============================================================================
+# If true, trades are auto-approved when PM is unavailable (offline)
+# If false, trades are halted when PM is unavailable
+# WARNING: Setting to true allows autonomous trading for critical trades
+auto_approve_when_pm_offline: false
+
+# =============================================================================
+# NOTIFICATION SETTINGS
+# =============================================================================
+notifications:
+  enabled: true
+  channels:
+    - console
+    # - telegram   # Uncomment to enable Telegram notifications
+    # - discord    # Uncomment to enable Discord notifications
+
+# =============================================================================
+# LOGGING SETTINGS
+# =============================================================================
+logging:
+  # Log all trade submissions to approval queue
+  log_all_submissions: true
+  
+  # Log all approvals
+  log_approvals: true
+  
+  # Log all rejections
+  log_rejections: true
+  
+  # Log all expirations
+  log_expirations: true
+
+# =============================================================================
+# ADVANCED SETTINGS
+# =============================================================================
+advanced:
+  # Config reload interval in milliseconds
+  config_reload_interval_ms: 60000
+  
+  # Maximum pending trades in queue
+  max_pending_trades: 100
+  
+  # Cleanup interval for expired trades (milliseconds)
+  cleanup_interval_ms: 10000
+

@@ -28,6 +28,18 @@ class CalibrateRequest(BaseModel):
     interval: str = Field("1D", description="Candle interval for Solana data")
     use_student_t: bool = Field(False, description="Use Student-t distribution for VaR")
     nu: float = Field(5.0, gt=2.0, description="Student-t degrees of freedom (must be > 2)")
+    leverage_gamma: float | str | None = Field(
+        None,
+        description=(
+            "Asymmetric leverage parameter (γ). "
+            "None = no leverage, float (≤ 0) = fixed value, "
+            "'estimate' = estimate via MLE."
+        ),
+    )
+    leverage_gamma: float | str | None = Field(
+        None,
+        description="Asymmetric leverage parameter. None=no leverage, float=fixed value, 'estimate'=MLE estimation",
+    )
 
 
 class CalibrationMetrics(BaseModel):
@@ -46,6 +58,7 @@ class CalibrateResponse(BaseModel):
     sigma_high: float
     p_stay: float | list[float]
     sigma_states: list[float]
+    leverage_gamma: float = Field(0.0, description="Asymmetric leverage parameter used in calibration")
     metrics: CalibrationMetrics
     calibrated_at: datetime
 
@@ -896,10 +909,12 @@ class GuardianAssessRequest(BaseModel):
     direction: str = Field(..., pattern="^(long|short)$", description="Trade direction")
     urgency: bool = Field(default=False, description="Bypass cache for urgent assessment")
     max_slippage_pct: float = Field(default=1.0, ge=0.0, le=10.0, description="Max acceptable slippage %")
+    strategy: str | None = Field(default=None, description="Trading strategy: lp, arb, perp")
+    run_debate: bool = Field(default=False, description="Run adversarial debate on this trade")
 
 
 class GuardianComponentScore(BaseModel):
-    component: str = Field(..., description="Component name: evt, svj, hawkes, regime")
+    component: str = Field(..., description="Component name: evt, svj, hawkes, regime, news")
     score: float = Field(..., ge=0, le=100, description="Risk score 0-100")
     details: dict
 
@@ -913,4 +928,579 @@ class GuardianAssessResponse(BaseModel):
     confidence: float = Field(..., ge=0, le=1, description="Model agreement level")
     expires_at: str
     component_scores: list[GuardianComponentScore]
+    circuit_breaker: dict | None = None
+    portfolio_limits: dict | None = None
+    debate: dict | None = None
     from_cache: bool = False
+
+
+# ── Liquidity-Adjusted VaR (LVaR) ─────────────────────────────────
+
+
+class LVaREstimateRequest(BaseModel):
+    token: str = Field(..., description="Token key from _model_store (must be calibrated)")
+    window: Optional[int] = Field(None, ge=5, le=200, description="Rolling window for spread estimation. None = full-sample.")
+    position_value: float = Field(100_000.0, gt=0, description="Position notional in USD")
+    holding_period: int = Field(1, ge=1, le=30, description="Holding period in days")
+    confidence: float = Field(95.0, gt=50.0, le=99.99, description="VaR confidence level (%)")
+
+
+class SpreadEstimate(BaseModel):
+    spread_pct: float = Field(..., description="Estimated bid-ask spread as % of mid-price")
+    spread_abs: float = Field(..., description="Absolute spread in price units")
+    spread_vol_pct: float = Field(..., description="Spread volatility as % of mid-price")
+    method: str = Field(..., description="Estimation method (roll)")
+    n_obs: int
+
+
+class LVaREstimateResponse(BaseModel):
+    token: str
+    lvar: float = Field(..., description="Liquidity-adjusted VaR (%)")
+    base_var: float = Field(..., description="Base VaR without liquidity adjustment (%)")
+    liquidity_cost_pct: float = Field(..., description="Liquidity cost component (%)")
+    liquidity_cost_abs: float = Field(..., description="Liquidity cost in USD")
+    lvar_abs: float = Field(..., description="LVaR in USD")
+    lvar_ratio: float = Field(..., description="LVaR / VaR ratio (>1 means liquidity worsens risk)")
+    spread: SpreadEstimate
+    alpha: float
+    holding_period: int
+    position_value: float
+    timestamp: datetime
+
+
+class RegimeLiquidityItem(BaseModel):
+    regime: int
+    n_obs: int
+    spread_pct: Optional[float] = None
+    spread_abs: Optional[float] = None
+    mean_volume: Optional[float] = None
+    liquidity_score: Optional[float] = None
+    insufficient_data: bool = False
+
+
+class RegimeLiquidityProfileResponse(BaseModel):
+    token: str
+    num_states: int
+    profiles: list[RegimeLiquidityItem]
+    weighted_avg_spread_pct: float
+    n_total: int
+    timestamp: datetime
+
+
+class RegimeLVaRBreakdownItem(BaseModel):
+    regime: int
+    probability: float
+    spread_pct: float
+    lvar: float
+    liquidity_cost_pct: float
+
+
+class RegimeLVaRResponse(BaseModel):
+    token: str
+    lvar: float = Field(..., description="Regime-weighted LVaR (%)")
+    base_var: float
+    liquidity_cost_pct: float
+    regime_weighted_spread_pct: float
+    regime_breakdown: list[RegimeLVaRBreakdownItem]
+    alpha: float
+    holding_period: int
+    position_value: float
+    timestamp: datetime
+
+
+class MarketImpactRequest(BaseModel):
+    token: str = Field(..., description="Token key from _model_store (must be calibrated)")
+    trade_size_usd: float = Field(..., gt=0, description="Proposed trade size in USD")
+    adv_usd: Optional[float] = Field(None, gt=0, description="Average daily volume in USD. If None, uses stored volume data.")
+    participation_rate: float = Field(0.10, gt=0.0, le=1.0, description="Max acceptable participation rate")
+
+
+class MarketImpactResponse(BaseModel):
+    token: str
+    impact_pct: float = Field(..., description="Estimated price impact (%)")
+    impact_usd: float = Field(..., description="Estimated impact cost in USD")
+    participation_rate: float = Field(..., description="Trade size / ADV ratio")
+    participation_warning: bool = Field(..., description="True if participation exceeds threshold")
+    sigma_daily: float
+    trade_size_usd: float
+    adv_usd: float
+    timestamp: datetime
+
+
+
+# ── Oracle (Pyth) models ──
+
+
+class PythFeedAttributes(BaseModel):
+    asset_type: str = ""
+    base: str = ""
+    description: str = ""
+    display_symbol: str = ""
+    generic_symbol: str = ""
+    quote_currency: str = ""
+    symbol: str = ""
+
+
+class PythFeedItem(BaseModel):
+    id: str
+    attributes: PythFeedAttributes
+
+
+class PythFeedListResponse(BaseModel):
+    feeds: list[PythFeedItem]
+    total: int
+    query: str | None = None
+    timestamp: datetime
+
+
+class OraclePriceItem(BaseModel):
+    price: float
+    confidence: float
+    ema_price: float
+    expo: int = 0
+    publish_time: int
+    feed_id: str
+    symbol: str = ""
+    description: str = ""
+    timestamp: float
+
+
+class OraclePricesResponse(BaseModel):
+    prices: list[OraclePriceItem]
+    count: int
+    source: str = "pyth"
+    timestamp: datetime
+
+
+class OracleHistoricalResponse(BaseModel):
+    prices: list[OraclePriceItem]
+    query_timestamp: int
+    count: int
+    timestamp: datetime
+
+
+class OracleStreamStatus(BaseModel):
+    active: bool
+    feed_ids: list[str]
+    events_received: int
+    started_at: float | None
+
+
+class OracleStatusResponse(BaseModel):
+    hermes_url: str
+    total_feeds_known: int
+    feed_cache_age_s: float | None
+    prices_cached: int
+    buffers_active: int
+    buffer_depth: int
+    stream: OracleStreamStatus
+    timestamp: float
+
+
+# ── Stream (Helius) models ──
+
+
+class StreamEvent(BaseModel):
+    event_type: str
+    severity: str
+    signature: str
+    slot: int
+    timestamp: float
+    details: dict = Field(default_factory=dict)
+
+
+class StreamEventsResponse(BaseModel):
+    events: list[StreamEvent]
+    total: int
+    timestamp: datetime
+
+
+class StreamStatusResponse(BaseModel):
+    connected: bool
+    last_event_time: float | None
+    events_received: int
+    started_at: float | None
+
+
+# ── Social sentiment models ──
+
+
+class SocialSourceItem(BaseModel):
+    source: str
+    sentiment: float
+    count: int
+
+
+class SocialSentimentResponse(BaseModel):
+    token: str
+    overall_sentiment: float
+    sources: list[SocialSourceItem]
+    timestamp: float
+
+
+# ── Macro indicator models ──
+
+
+class FearGreedItem(BaseModel):
+    value: int
+    classification: str
+    timestamp: int
+
+
+class BtcDominanceItem(BaseModel):
+    btc_dominance: float
+    eth_dominance: float
+    total_market_cap_usd: float
+    total_volume_24h_usd: float
+    active_cryptocurrencies: int
+
+
+class MacroIndicatorsResponse(BaseModel):
+    fear_greed: FearGreedItem
+    btc_dominance: BtcDominanceItem
+    risk_level: str
+    timestamp: float
+
+
+
+# ── Kelly Criterion models ──
+
+
+class KellyStatsResponse(BaseModel):
+    active: bool
+    n_trades: int = 0
+    win_rate: float | None = None
+    win_loss_ratio: float | None = None
+    kelly_full: float | None = None
+    kelly_fraction: float | None = None
+    fraction_used: float | None = None
+    reason: str | None = None
+
+
+class TradeOutcomeRequest(BaseModel):
+    pnl: float = Field(..., description="Profit/loss of the trade in USD")
+    size: float = Field(..., description="Trade size in USD")
+    token: str = Field("", description="Token symbol")
+
+
+# ── Circuit Breaker models ──
+
+
+class CircuitBreakerItem(BaseModel):
+    name: str
+    state: str
+    fail_count: int
+    threshold: float
+    consecutive_required: int
+    cooldown_seconds: float
+    opened_at: float | None = None
+    cooldown_remaining: float | None = None
+    history_len: int = 0
+
+
+class CircuitBreakersResponse(BaseModel):
+    breakers: list[CircuitBreakerItem]
+    timestamp: float
+
+
+# ── Portfolio Risk models ──
+
+
+class PositionItem(BaseModel):
+    token: str
+    size_usd: float
+    direction: str
+    entry_price: float = 0.0
+    opened_at: float = 0.0
+
+
+class DrawdownResponse(BaseModel):
+    daily_pnl: float
+    weekly_pnl: float
+    daily_drawdown_pct: float
+    weekly_drawdown_pct: float
+    daily_limit_pct: float
+    weekly_limit_pct: float
+    daily_breached: bool
+    weekly_breached: bool
+    portfolio_value: float
+
+
+class CorrelationExposure(BaseModel):
+    group: str | None = None
+    group_tokens: list[str] = Field(default_factory=list)
+    group_exposure_usd: float = 0.0
+    exposure_pct: float = 0.0
+    limit_pct: float = 0.0
+    breached: bool = False
+
+
+class PortfolioLimitsResponse(BaseModel):
+    blocked: bool
+    blockers: list[str]
+    drawdown: DrawdownResponse
+    correlation: CorrelationExposure
+
+
+class PositionsResponse(BaseModel):
+    positions: list[PositionItem]
+    total_exposure_usd: float
+    portfolio_value: float
+    timestamp: float
+
+
+# ── Adversarial Debate models ──
+
+
+class DebateAgentOutput(BaseModel):
+    role: str
+    position: str | None = None
+    decision: str | None = None
+    confidence: float
+    arguments: list[str] = Field(default_factory=list)
+    reasoning: list[str] = Field(default_factory=list)
+    suggested_action: str | None = None
+    trader_weight: float | None = None
+    risk_weight: float | None = None
+
+
+class DebateRound(BaseModel):
+    round: int
+    trader: DebateAgentOutput
+    risk_manager: DebateAgentOutput
+    arbitrator: DebateAgentOutput
+
+
+class DebateResponse(BaseModel):
+    final_decision: str
+    final_confidence: float
+    rounds: list[DebateRound]
+    num_rounds: int
+    elapsed_ms: float
+    original_approved: bool
+    decision_changed: bool
+
+
+# --- Async calibration task models ---
+
+class AsyncTaskResponse(BaseModel):
+    task_id: str
+    status: str
+    endpoint: str
+    created_at: str
+
+
+class TaskStatusResponse(BaseModel):
+    task_id: str
+    status: str
+    endpoint: str
+    result: dict | list | None = None
+    error: str | None = None
+    created_at: str
+    started_at: str | None = None
+    completed_at: str | None = None
+
+
+# ── On-Chain Liquidity (Wave 10.1) ─────────────────────────────────
+
+
+class OnchainDepthRequest(BaseModel):
+    pool_address: str = Field(..., description="CLMM pool address (Raydium/Orca)")
+    num_ticks: int = Field(50, ge=5, le=200, description="Number of ticks per side")
+
+
+class OnchainDepthResponse(BaseModel):
+    pool: str
+    current_price: float
+    bid_prices: list[float]
+    ask_prices: list[float]
+    bid_depth: list[float]
+    ask_depth: list[float]
+    total_bid_liquidity: float
+    total_ask_liquidity: float
+    depth_imbalance: float
+    timestamp: datetime
+
+
+class DexSpreadItem(BaseModel):
+    dex: str
+    mean_spread_pct: float
+    std_spread_pct: float
+    n_swaps: int
+
+
+class RealizedSpreadRequest(BaseModel):
+    token_address: str = Field(..., description="Solana token mint address")
+    limit: int = Field(100, ge=10, le=500, description="Number of swaps to analyze")
+
+
+class RealizedSpreadResponse(BaseModel):
+    token_address: str
+    realized_spread_pct: float
+    realized_spread_vol_pct: float
+    n_swaps: int
+    by_dex: list[DexSpreadItem]
+    vwas_pct: float = Field(..., description="Volume-weighted average spread")
+    total_volume: float
+    timestamp: datetime
+
+
+class OnchainLVaRRequest(BaseModel):
+    token: str = Field(..., description="Token key from _model_store (must be calibrated)")
+    token_address: str | None = Field(None, description="Solana token mint for on-chain spread")
+    pair_address: str | None = Field(None, description="Axiom pair address for live spread")
+    confidence: float = Field(95.0, gt=50.0, le=99.99)
+    position_value: float = Field(100_000.0, gt=0)
+    holding_period: int = Field(1, ge=1, le=30)
+
+
+class OnchainLVaRResponse(BaseModel):
+    token: str
+    lvar: float
+    base_var: float
+    liquidity_cost_pct: float
+    spread_pct: float
+    spread_source: str = Field(..., description="onchain|axiom|roll|default")
+    by_dex: list[DexSpreadItem] | None = None
+    confidence: float
+    holding_period: int
+    position_value: float
+    timestamp: datetime
+
+
+# ── Tick-Level Backtesting (Wave 10.2) ─────────────────────────────
+
+
+class TickDataRequest(BaseModel):
+    token_address: str = Field(..., description="Solana token mint address")
+    lookback_days: int = Field(7, ge=1, le=90)
+    bar_type: str = Field("time", description="time|volume|tick|imbalance")
+    bar_size: int = Field(300, ge=1, description="Bar size (seconds for time, units for others)")
+    limit: int = Field(1000, ge=100, le=10000)
+
+
+class TickBar(BaseModel):
+    timestamp: float
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: float
+    n_ticks: int
+    vwap: float
+
+
+class TickDataResponse(BaseModel):
+    token_address: str
+    bar_type: str
+    bar_size: int
+    n_bars: int
+    bars: list[TickBar]
+    timestamp: datetime
+
+
+class BacktestRequest(BaseModel):
+    token: str = Field(..., description="Token key from _model_store")
+    token_address: str | None = Field(None, description="Solana token mint for tick data")
+    horizons: list[int] = Field([60, 240], description="Backtest horizons in minutes")
+    confidence: float = Field(95.0, gt=50.0, le=99.99)
+    lookback_days: int = Field(30, ge=7, le=90)
+
+
+class BacktestHorizonResult(BaseModel):
+    horizon_minutes: int
+    n_observations: int
+    n_violations: int
+    violation_rate: float
+    expected_rate: float
+    kupiec_stat: float
+    kupiec_pvalue: float
+    kupiec_pass: bool
+    christoffersen_stat: float | None = None
+    christoffersen_pvalue: float | None = None
+
+
+class BacktestResponse(BaseModel):
+    token: str
+    confidence: float
+    horizons: list[BacktestHorizonResult]
+    overall_pass: bool
+    timestamp: datetime
+
+
+# ── On-Chain Events for Hawkes (Wave 10.3) ─────────────────────────
+
+
+class OnchainEventItem(BaseModel):
+    event_type: str
+    slot: int
+    timestamp: float
+    magnitude: float
+    details: dict = Field(default_factory=dict)
+
+
+class OnchainEventsResponse(BaseModel):
+    token_address: str
+    events: list[OnchainEventItem]
+    n_events: int
+    event_type_counts: dict[str, int]
+    timestamp: datetime
+
+
+class HawkesOnchainCalibrateRequest(BaseModel):
+    token_address: str = Field(..., description="Solana token mint address")
+    event_types: list[str] = Field(
+        ["large_swap", "oracle_jump", "liquidation"],
+        description="Event types to include",
+    )
+    lookback_slots: int = Field(216000, ge=1000, description="Lookback window in slots (~24h = 216000)")
+
+
+class CrossExcitationEntry(BaseModel):
+    source: str
+    target: str
+    alpha: float = Field(..., description="Excitation magnitude")
+    beta: float = Field(..., description="Decay rate")
+
+
+class HawkesOnchainCalibrateResponse(BaseModel):
+    token_address: str
+    event_types: list[str]
+    n_events_per_type: dict[str, int]
+    mu: dict[str, float] = Field(..., description="Baseline intensity per event type")
+    cross_excitation: list[CrossExcitationEntry]
+    branching_matrix: list[list[float]]
+    spectral_radius: float
+    stationary: bool
+    timestamp: datetime
+
+
+class HawkesOnchainRiskResponse(BaseModel):
+    token_address: str
+    flash_crash_score: float = Field(..., description="0-100 risk score")
+    current_intensities: dict[str, float]
+    baseline_intensities: dict[str, float]
+    dominant_event_type: str
+    risk_level: str
+    timestamp: datetime
+
+
+# ── Token Info (Token Card) ───────────────────────────────────────
+
+
+class TokenInfoResponse(BaseModel):
+    address: str
+    name: str
+    symbol: str
+    logo_uri: str = ""
+    decimals: int = 0
+    price_usd: float = 0.0
+    price_change_24h_pct: float = 0.0
+    market_cap: float = 0.0
+    volume_24h_usd: float = 0.0
+    liquidity_usd: float = 0.0
+    holder_count: int = 0
+    deployer: str = ""
+    created_at: str | int | None = None
+    dex_platform: str = ""
+    timestamp: datetime

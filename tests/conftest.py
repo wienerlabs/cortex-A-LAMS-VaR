@@ -1,14 +1,15 @@
-import sys
-from pathlib import Path
+import os
+
+os.environ["TESTING"] = "1"
 
 import numpy as np
 import pandas as pd
 import pytest
+from cashews import cache as _cashews_cache
 
-# Ensure project root is importable
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from cortex import msm
 
-msm = __import__("MSM-VaR_MODEL")
+_cashews_cache.setup("mem://")
 
 
 @pytest.fixture(scope="session")

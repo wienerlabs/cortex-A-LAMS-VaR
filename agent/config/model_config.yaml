@@ -1,0 +1,88 @@
+# XGBoost Model Configuration
+# Hyperparameters for each strategy model
+
+arbitrage:
+  # Model hyperparameters
+  n_estimators: 150
+  max_depth: 7
+  learning_rate: 0.05
+  subsample: 0.8
+  colsample_bytree: 0.8
+  min_child_weight: 3
+  gamma: 0.1
+  reg_alpha: 0.1
+  reg_lambda: 1.0
+  
+  # Training settings
+  early_stopping_rounds: 20
+  eval_metric: "auc"
+  
+  # Feature selection
+  feature_importance_threshold: 0.01
+  
+  # Class weights (handle imbalance)
+  scale_pos_weight: 2.0
+
+lending:
+  # Model hyperparameters
+  n_estimators: 200
+  max_depth: 8
+  learning_rate: 0.03
+  subsample: 0.85
+  colsample_bytree: 0.85
+  min_child_weight: 5
+  gamma: 0.15
+  reg_alpha: 0.2
+  reg_lambda: 1.5
+  
+  # Training settings
+  early_stopping_rounds: 25
+  eval_metric: "rmse"
+  
+  # Feature selection
+  feature_importance_threshold: 0.015
+
+lp_provision:
+  # Model hyperparameters
+  n_estimators: 180
+  max_depth: 9
+  learning_rate: 0.04
+  subsample: 0.8
+  colsample_bytree: 0.75
+  min_child_weight: 4
+  gamma: 0.12
+  reg_alpha: 0.15
+  reg_lambda: 1.2
+  
+  # Training settings
+  early_stopping_rounds: 22
+  eval_metric: "rmse"
+  
+  # Feature selection
+  feature_importance_threshold: 0.012
+
+# Common settings
+common:
+  # Cross-validation
+  cv_folds: 5
+  
+  # Random seed for reproducibility
+  random_state: 42
+  
+  # Verbose level
+  verbosity: 1
+  
+  # Tree method (gpu_hist for GPU)
+  tree_method: "hist"
+  
+  # ONNX export settings
+  onnx:
+    opset_version: 15
+    optimize: true
+
+# Model versioning
+versioning:
+  model_prefix: "cortex"
+  save_format: "onnx"
+  backup_count: 3
+

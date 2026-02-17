@@ -1,55 +1,91 @@
-import logging
-import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
+
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+
+import structlog
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-# Ensure project root is importable
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from cashews.contrib.fastapi import CacheEtagMiddleware, CacheDeleteMiddleware
 
+from api.middleware import RateLimitMiddleware, RequestIDMiddleware, get_allowed_origins
 from api.routes import router
+from api.stores import ALL_STORES
+from cortex.cache import cache, setup_cache
+from cortex.config import API_VERSION, METRICS_ENABLED
+from cortex.logging import setup_logging
+from cortex.persistence import close_persistence, init_persistence
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-)
-logger = logging.getLogger("cortex_risk_engine")
+setup_logging()
+logger = structlog.get_logger("cortex_risk_engine")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("CortexAgent Risk Engine starting up")
+    await setup_cache()
+
+    await init_persistence()
+    total = 0
+    for store in ALL_STORES:
+        total += await store.restore()
+    if total:
+        logger.info("Restored %d model state(s) from Redis", total)
+
     yield
+
+    persisted = 0
+    for store in ALL_STORES:
+        persisted += await store.persist_all()
+    if persisted:
+        logger.info("Persisted %d model state(s) to Redis", persisted)
+
+    await close_persistence()
+    await cache.close()
     logger.info("CortexAgent Risk Engine shutting down")
 
 
 app = FastAPI(
     title="CortexAgent Risk Engine",
     description="Multi-model volatility and risk management API — MSM regime detection, EVT, SVJ, Hawkes, copula VaR, rough volatility, and Guardian risk veto for autonomous DeFi agents on Solana.",
-    version="1.1.0",
+    version=API_VERSION,
     lifespan=lifespan,
 )
 
+allowed_origins = get_allowed_origins()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["X-API-Key", "Content-Type", "Authorization"],
+    expose_headers=["X-RateLimit-Limit", "X-RateLimit-Remaining", "Retry-After"],
 )
 
+app.add_middleware(RateLimitMiddleware)
+app.add_middleware(RequestIDMiddleware)
+app.add_middleware(CacheEtagMiddleware)
+app.add_middleware(CacheDeleteMiddleware)
+
 app.include_router(router, prefix="/api/v1", tags=["msm"])
+
+if METRICS_ENABLED:
+    from prometheus_fastapi_instrumentator import Instrumentator
+
+    Instrumentator().instrument(app).expose(app)
 
 _frontend_dir = Path(__file__).resolve().parent.parent / "frontend"
 
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "cortex-risk-engine", "version": "1.1.0"}
+    return {"status": "ok", "service": "cortex-risk-engine", "version": API_VERSION}
 
 
 @app.get("/", include_in_schema=False)

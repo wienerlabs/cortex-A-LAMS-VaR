@@ -1,14 +1,58 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: cortex-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: cortex
+      POSTGRES_PASSWORD: cortex_dev_password
+      POSTGRES_DB: cortex
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cortex -d cortex"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: cortex-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    restart: unless-stopped
+
   risk-engine:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: cortex-risk-engine
+    depends_on:
+      redis:
+        condition: service_healthy
     ports:
       - "8000:8000"
+    env_file:
+      - .env
     environment:
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=info
+      - CORTEX_API_KEYS=${CORTEX_API_KEYS:-}
+      - CORTEX_ALLOWED_ORIGINS=${CORTEX_ALLOWED_ORIGINS:-http://localhost:8000}
+      - CORTEX_RATE_LIMIT_READ=${CORTEX_RATE_LIMIT_READ:-60}
+      - CORTEX_RATE_LIMIT_WRITE=${CORTEX_RATE_LIMIT_WRITE:-10}
+      - REDIS_URL=redis://redis:6379/0
+      - PERSISTENCE_REDIS_URL=redis://redis:6379/1
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s
@@ -23,29 +67,32 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: cortex-risk-engine-dev
+    depends_on:
+      redis:
+        condition: service_healthy
     ports:
       - "8000:8000"
     volumes:
       - ./api:/app/api
       - ./frontend:/app/frontend
-      - ./MSM-VaR_MODEL.py:/app/MSM-VaR_MODEL.py
-      - ./extreme_value_theory.py:/app/extreme_value_theory.py
-      - ./hawkes_process.py:/app/hawkes_process.py
-      - ./svj_model.py:/app/svj_model.py
-      - ./copula_portfolio_var.py:/app/copula_portfolio_var.py
-      - ./rough_volatility.py:/app/rough_volatility.py
-      - ./multifractal_analysis.py:/app/multifractal_analysis.py
-      - ./portfolio_var.py:/app/portfolio_var.py
-      - ./regime_analytics.py:/app/regime_analytics.py
-      - ./model_comparison.py:/app/model_comparison.py
-      - ./news_intelligence.py:/app/news_intelligence.py
-      - ./guardian.py:/app/guardian.py
-      - ./solana_data_adapter.py:/app/solana_data_adapter.py
+      - ./cortex:/app/cortex
+    env_file:
+      - .env
     environment:
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=debug
+      - CORTEX_API_KEYS=${CORTEX_API_KEYS:-}
+      - CORTEX_ALLOWED_ORIGINS=${CORTEX_ALLOWED_ORIGINS:-*}
+      - CORTEX_RATE_LIMIT_READ=${CORTEX_RATE_LIMIT_READ:-120}
+      - CORTEX_RATE_LIMIT_WRITE=${CORTEX_RATE_LIMIT_WRITE:-30}
+      - REDIS_URL=redis://redis:6379/0
+      - PERSISTENCE_REDIS_URL=redis://redis:6379/1
     command: ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
     profiles:
       - dev
     restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis-data:
 

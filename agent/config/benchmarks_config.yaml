@@ -1,0 +1,128 @@
+# =============================================================================
+# PERFORMANCE BENCHMARKS CONFIGURATION
+# =============================================================================
+# Defines minimum performance thresholds for models, system, and strategies.
+# Trading is automatically paused when critical benchmarks are breached.
+# =============================================================================
+
+enabled: true
+check_interval_hours: 24
+
+# =============================================================================
+# MODEL-SPECIFIC BENCHMARKS
+# =============================================================================
+# Minimum acceptable performance metrics for each ML model
+models:
+  perps:
+    min_precision: 0.70
+    min_recall: 0.50
+    min_sharpe: 1.5
+    min_win_rate: 0.60
+    min_roc_auc: 0.75
+    
+  spot:
+    min_precision: 0.75
+    min_recall: 0.55
+    min_sharpe: 1.8
+    min_win_rate: 0.65
+    min_roc_auc: 0.78
+    
+  lp:
+    min_precision: 0.75
+    min_recall: 0.60
+    min_sharpe: 1.2
+    min_win_rate: 0.70
+    min_roc_auc: 0.75
+    
+  lending:
+    min_precision: 0.65
+    min_recall: 0.50
+    min_sharpe: 1.0
+    min_win_rate: 0.60
+    min_roc_auc: 0.70
+    
+  arbitrage:
+    min_precision: 0.90
+    min_recall: 0.40
+    min_sharpe: 2.0
+    min_win_rate: 0.85
+    min_roc_auc: 0.90
+
+# =============================================================================
+# SYSTEM-WIDE BENCHMARKS
+# =============================================================================
+# Portfolio-level performance thresholds
+system:
+  # Maximum drawdown limits
+  max_daily_drawdown: 0.05      # 5% max daily drawdown
+  max_weekly_drawdown: 0.10     # 10% max weekly drawdown
+  max_monthly_drawdown: 0.15    # 15% max monthly drawdown
+  
+  # Minimum return thresholds
+  min_daily_return: -0.02       # -2% max loss per day
+  min_weekly_return: -0.05      # -5% max loss per week
+  min_monthly_return: 0.02      # +2% min gain per month
+  
+  # Performance targets
+  target_annual_alpha: 0.05     # 5% annual alpha target
+  target_annual_sharpe: 1.5     # 1.5 Sharpe ratio target
+  
+  # Loss streak limits
+  max_consecutive_losses: 5     # Max 5 consecutive losing trades
+
+# =============================================================================
+# STRATEGY-SPECIFIC BENCHMARKS
+# =============================================================================
+# Per-strategy performance requirements
+strategies:
+  lp_rebalancing:
+    min_monthly_trades: 5
+    min_win_rate: 0.70
+    max_avg_loss: 0.03          # Max 3% average per losing trade
+    min_avg_profit: 0.02        # Min 2% average per winning trade
+    
+  spot_trading:
+    min_monthly_trades: 10
+    min_win_rate: 0.65
+    max_avg_loss: 0.05          # Max 5% average per losing trade
+    min_avg_profit: 0.03        # Min 3% average per winning trade
+    
+  arbitrage:
+    min_monthly_trades: 20
+    min_win_rate: 0.85
+    max_avg_loss: 0.02          # Max 2% average per losing trade
+    min_avg_profit: 0.005       # Min 0.5% average per winning trade
+    
+  perps:
+    min_monthly_trades: 15
+    min_win_rate: 0.60
+    max_avg_loss: 0.04          # Max 4% average per losing trade
+    min_avg_profit: 0.025       # Min 2.5% average per winning trade
+    
+  lending:
+    min_monthly_trades: 5
+    min_win_rate: 0.70
+    max_avg_loss: 0.02          # Max 2% average per losing trade
+    min_avg_profit: 0.015       # Min 1.5% average per winning trade
+
+# =============================================================================
+# ALERT CONFIGURATION
+# =============================================================================
+alerts:
+  # Threshold ratios (relative to benchmark)
+  warning_threshold: 0.90       # Alert at 90% of benchmark
+  critical_threshold: 1.00      # Critical at benchmark breach
+  
+  # Auto-pause behavior
+  pause_trading_on_critical: true
+  resume_requires_manual_approval: true
+  
+  # Notification channels
+  notification_channels:
+    - log
+    # - email    # Uncomment to enable email notifications
+    # - slack    # Uncomment to enable Slack notifications
+  
+  # Cooldown between alerts (hours)
+  alert_cooldown_hours: 4
+

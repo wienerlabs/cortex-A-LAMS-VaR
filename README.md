@@ -2,17 +2,17 @@
 
 > **Multi-model volatility and risk management framework for autonomous DeFi trading agents on Solana.**
 >
-> Built by [Cortex AI](https://www.cortex-agent.xyz) — combining MSM regime detection, Extreme Value Theory, Hawkes processes, SVJ, copula dependence, rough volatility, multifractal analysis, and a unified Guardian risk veto layer. Exposed via a 45-endpoint REST API and a published [TypeScript SDK (`cortex-risk-sdk`)](https://www.npmjs.com/package/cortex-risk-sdk).
+> Built by [Cortex AI](https://www.cortex-agent.xyz) — combining MSM regime detection, Extreme Value Theory, Hawkes processes, SVJ, vine copula dependence (pyvinecopulib), rough volatility, multifractal analysis, multi-exchange data feeds (ccxt), advanced portfolio optimization (skfolio), Redis-backed model persistence, and a unified Guardian risk veto layer. Exposed via a REST API and a published [TypeScript SDK (`cortex-risk-sdk`)](https://www.npmjs.com/package/cortex-risk-sdk).
 
 [![npm](https://img.shields.io/npm/v/cortex-risk-sdk)](https://www.npmjs.com/package/cortex-risk-sdk)
-[![Tests](https://img.shields.io/badge/tests-261%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-582%20passing-brightgreen)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 ---
 
 ## Abstract
 
-Financial markets exhibit non-stationary dynamics characterized by abrupt regime transitions, heavy-tailed return distributions, volatility clustering, and contagion-driven crash cascades. Traditional single-model risk frameworks — such as standalone GARCH or constant-volatility VaR — fail to capture these phenomena simultaneously, leading to systematic underestimation of tail risk during crisis periods. This paper presents the **CortexAgent Risk Engine**, a modular quantitative framework that integrates seven complementary stochastic models into a unified risk assessment pipeline. The core Markov-Switching Multifractal (MSM) model provides real-time regime detection via Bayesian filtering across K volatility states. This is augmented by Generalized Pareto Distribution (GPD) tail modeling, Hawkes self-exciting point processes for crash contagion, the Bates (1996) Stochastic Volatility with Jumps (SVJ) model, five-family copula dependence structures with regime-conditional selection, rough Bergomi volatility (H ≈ 0.1), and multifractal spectrum analysis. A Guardian integration layer consolidates all model outputs into a single composite risk score with circuit-breaker logic for autonomous trade veto. The system is validated through Kupiec and Christoffersen backtests and exposed via a 45-endpoint REST API with a published TypeScript SDK designed for integration with autonomous trading agents on Solana.
+Financial markets exhibit non-stationary dynamics characterized by abrupt regime transitions, heavy-tailed return distributions, volatility clustering, and contagion-driven crash cascades. Traditional single-model risk frameworks — such as standalone GARCH or constant-volatility VaR — fail to capture these phenomena simultaneously, leading to systematic underestimation of tail risk during crisis periods. This paper presents the **CortexAgent Risk Engine**, a modular quantitative framework that integrates seven complementary stochastic models into a unified risk assessment pipeline. The core Markov-Switching Multifractal (MSM) model provides real-time regime detection via Bayesian filtering across K volatility states. This is augmented by Generalized Pareto Distribution (GPD) tail modeling, Hawkes self-exciting point processes for crash contagion, the Bates (1996) Stochastic Volatility with Jumps (SVJ) model, vine copula dependence structures (R-vine, C-vine, D-vine via pyvinecopulib) with regime-conditional selection, rough Bergomi volatility (H ≈ 0.1), and multifractal spectrum analysis. The framework further integrates multi-exchange market data via ccxt (100+ exchanges), advanced portfolio optimization via skfolio (Mean-CVaR, HRP, Min-Variance), and Redis-backed model state persistence for production resilience. A Guardian integration layer consolidates all model outputs into a single composite risk score with circuit-breaker logic for autonomous trade veto. The system is validated through Kupiec and Christoffersen backtests with 582 passing tests and exposed via a REST API with a published TypeScript SDK designed for integration with autonomous trading agents on Solana.
 
 ---
 
@@ -59,9 +59,13 @@ The Cortex Risk Engine resolves this through **model composition**: each module 
 This framework makes the following contributions:
 
 - A production-ready implementation of the Calvet & Fisher (2004) MSM model with K-state Bayesian filtering, asymmetric transition matrices, and Student-t VaR extensions.
-- Integration of seven complementary risk models into a single coherent pipeline with 261 passing unit tests.
-- A Guardian risk veto layer that consolidates EVT (30%), SVJ (25%), Hawkes (25%), and Regime (20%) scores into a single composite risk assessment with circuit-breaker logic.
-- A 45-endpoint REST API with WebSocket regime streaming, designed for sub-10ms query latency.
+- Integration of seven complementary risk models into a single coherent pipeline with 582 passing unit tests.
+- A Guardian risk veto layer that consolidates EVT (25%), SVJ (20%), Hawkes (20%), Regime (20%), and News (15%) scores into a single composite risk assessment with circuit-breaker logic.
+- Vine copula dependence modeling (R-vine, C-vine, D-vine) via pyvinecopulib for high-dimensional asset dependence beyond pairwise bivariate copulas.
+- Multi-exchange data feeds via ccxt (100+ exchanges) with unified OHLCV, order book, and ticker interfaces.
+- Advanced portfolio optimization via skfolio: Mean-CVaR, Hierarchical Risk Parity (HRP), Min-Variance, with sklearn-compatible API.
+- Redis-backed model state persistence with graceful in-memory fallback for production resilience across restarts.
+- A REST API with WebSocket regime streaming, designed for sub-10ms query latency.
 - A published TypeScript SDK ([`cortex-risk-sdk`](https://www.npmjs.com/package/cortex-risk-sdk)) with cockatiel resilience (retry, circuit breaker, timeout) and zod runtime validation.
 - Regime-dependent copula selection that dynamically switches between Gaussian (calm) and Student-t (crisis) dependence structures based on filtered regime probabilities.
 
@@ -183,7 +187,7 @@ SVJ VaR is computed via Monte Carlo simulation (default: 50,000 paths) of the di
 
 ### 2.5 Copula Dependence Modeling
 
-For portfolio risk, marginal distributions are separated from the dependence structure via Sklar's theorem. Five copula families are implemented:
+For portfolio risk, marginal distributions are separated from the dependence structure via Sklar's theorem. Five bivariate copula families are implemented:
 
 | Family | Tail Dependence | Use Case |
 |--------|----------------|----------|
@@ -194,6 +198,14 @@ For portfolio risk, marginal distributions are separated from the dependence str
 | Frank | None | Moderate symmetric dependence |
 
 **Regime-dependent selection:** The copula family is chosen based on the MSM regime state. States in the top 40% of the volatility spectrum (crisis) use Student-t copulas; the remainder use Gaussian. VaR is computed as a probability-weighted mixture across all regime-copula pairs.
+
+**Vine copulas (pyvinecopulib):** For portfolios with d > 2 assets, vine copulas decompose the multivariate dependence into a cascade of bivariate pair-copulas arranged in a tree structure. Three vine structures are supported:
+
+- **R-vine** (Regular vine): Most flexible — any valid tree sequence
+- **C-vine** (Canonical vine): Star-shaped trees — one central node per level
+- **D-vine** (Drawable vine): Path-shaped trees — sequential conditioning
+
+The vine copula is fit via maximum pseudo-likelihood with automatic family selection from the full pyvinecopulib family set (40+ families including BB1, BB6, BB7, BB8, Tawn, etc.). This replaces the pairwise-average approximation used by bivariate copulas, providing a mathematically correct multivariate dependence model. Vine copula VaR is computed via Monte Carlo simulation from the fitted vine.
 
 ### 2.6 Rough Volatility — Rough Bergomi Model
 
@@ -229,8 +241,11 @@ Each model was selected to address a specific gap in the risk measurement pipeli
 | Hawkes | Crash contagion | ETAS, ACD | Hawkes offers closed-form intensity with interpretable branching ratio; simpler than ETAS for financial applications |
 | SVJ (Bates) | Jump risk | Merton jump-diffusion | Bates adds stochastic volatility to Merton, capturing the leverage effect (ρ < 0) observed in crypto markets |
 | Copulas | Dependence | DCC-GARCH | Copulas separate marginals from dependence, enabling regime-conditional family switching |
+| Vine Copulas | High-d dependence | Factor copulas | Vine copulas decompose into bivariate pairs — more flexible, automatic family selection via pyvinecopulib |
 | Rough Bergomi | Volatility microstructure | RFSV | Rough Bergomi is the canonical rough volatility model with tractable simulation |
 | Multifractal | Scaling properties | Wavelet MF-DFA | R/S + DFA provide complementary Hurst estimates with well-understood statistical properties |
+| ccxt | Multi-exchange data | Custom API clients | Unified interface to 100+ exchanges, handles rate limiting, pagination, normalization |
+| skfolio | Portfolio optimization | cvxpy/PyPortfolioOpt | sklearn-compatible API, Mean-CVaR/HRP/MinVar, walk-forward ready |
 
 ### 3.2 Backtesting Framework
 
@@ -259,107 +274,129 @@ Comparison metrics: Mean Absolute Error (MAE) of volatility estimates, Akaike In
 ```mermaid
 graph TB
     subgraph Data Layer
-        A[Birdeye API / Solana] --> D[solana_data_adapter.py]
-        B[yfinance / TradFi] --> D
-        C[News APIs] --> N[news_intelligence.py]
+        A[Birdeye API / Solana] --> D[cortex/data/solana.py]
+        B[ccxt / 100+ Exchanges] --> CX[cortex/data/ccxt_feed.py]
+        C[News APIs] --> N[cortex/news.py]
     end
 
     subgraph Core Models
-        D --> MSM[MSM-VaR_MODEL.py<br/>K-state Bayesian filtering]
-        D --> EVT[extreme_value_theory.py<br/>GPD tail modeling]
-        D --> HWK[hawkes_process.py<br/>Self-exciting processes]
-        D --> SVJ[svj_model.py<br/>Bates 1996]
-        D --> RV[rough_volatility.py<br/>fBm rough Bergomi]
-        D --> MF[multifractal_analysis.py<br/>Hurst + MMAR]
+        D & CX --> MSM[cortex/msm.py<br/>K-state Bayesian filtering]
+        D & CX --> EVT[cortex/evt.py<br/>GPD tail modeling]
+        D & CX --> HWK[cortex/hawkes.py<br/>Self-exciting processes]
+        D & CX --> SVJ[cortex/svj.py<br/>Bates 1996]
+        D & CX --> RV[cortex/rough_vol.py<br/>fBm rough Bergomi]
+        D & CX --> MF[cortex/multifractal.py<br/>Hurst + MMAR]
     end
 
     subgraph Portfolio Layer
-        MSM --> PV[portfolio_var.py<br/>Multi-asset MSM]
-        PV --> CP[copula_portfolio_var.py<br/>5 copula families]
+        MSM --> PV[cortex/portfolio.py<br/>Multi-asset MSM]
+        PV --> CP[cortex/copula.py<br/>5 bivariate + vine copulas]
+        PV --> PO[cortex/portfolio_opt.py<br/>Mean-CVaR / HRP / MinVar]
     end
 
-    subgraph Analytics
-        MSM --> RA[regime_analytics.py]
-        MSM --> MC[model_comparison.py<br/>9-model benchmark]
+    subgraph Infrastructure
+        REDIS[(Redis)] --> PERSIST[cortex/persistence.py<br/>Model state persistence]
+        PERSIST --> STORES[api/stores.py<br/>PersistentStore]
+    end
+
+    subgraph Guardian
+        MSM & EVT & HWK & SVJ & RV & MF --> G[cortex/guardian.py<br/>Composite risk veto]
     end
 
     subgraph API Layer
-        MSM & EVT & HWK & SVJ & RV & MF & PV & CP & RA & MC & N --> API[FastAPI REST API<br/>44 endpoints + WebSocket]
+        G & PV & CP & PO & STORES --> API[FastAPI REST API<br/>api/routes/*]
     end
 ```
 
 ### 4.2 Module Inventory
 
-| Module | File | Lines | Functions | Description |
-|--------|------|-------|-----------|-------------|
-| MSM Core | `MSM-VaR_MODEL.py` | 995 | 12 | Regime detection, Bayesian filtering, VaR |
-| EVT | `extreme_value_theory.py` | 419 | 6 | GPD fitting, tail VaR, Expected Shortfall |
-| Hawkes | `hawkes_process.py` | 489 | 7 | Event clustering, flash crash detection |
-| SVJ | `svj_model.py` | 670 | 6 | Jump detection, Bates calibration, MC VaR |
-| Copula | `copula_portfolio_var.py` | 660 | 8 | 5 families, regime-dependent selection |
-| Rough Vol | `rough_volatility.py` | 594 | 5 | fBm estimation, rough Bergomi forecasts |
-| Multifractal | `multifractal_analysis.py` | 475 | 4 | Hurst (R/S + DFA), spectrum, LRD test |
-| Portfolio | `portfolio_var.py` | 279 | 3 | Multi-asset MSM, marginal/stress VaR |
-| Regime Analytics | `regime_analytics.py` | ~200 | 4 | Duration, statistics, history, transitions |
-| Model Comparison | `model_comparison.py` | 346 | 2 | 9-model benchmark framework |
-| News Intelligence | `news_intelligence.py` | ~300 | 3 | Sentiment scoring, market signals |
-| Guardian | `guardian.py` | 241 | 5 | Unified risk veto, composite scoring |
-| Solana Adapter | `solana_data_adapter.py` | ~250 | 3 | Birdeye, Drift, Raydium data fetching |
+| Module | File | Description |
+|--------|------|-------------|
+| MSM Core | `cortex/msm.py` | Regime detection, Bayesian filtering, VaR |
+| EVT | `cortex/evt.py` | GPD fitting, tail VaR, Expected Shortfall |
+| Hawkes | `cortex/hawkes.py` | Event clustering, flash crash detection |
+| SVJ | `cortex/svj.py` | Jump detection, Bates calibration, MC VaR |
+| Copula | `cortex/copula.py` | 5 bivariate + vine copulas (pyvinecopulib), regime-dependent selection |
+| Rough Vol | `cortex/rough_vol.py` | fBm estimation, rough Bergomi forecasts |
+| Multifractal | `cortex/multifractal.py` | Hurst (R/S + DFA), spectrum, LRD test |
+| Portfolio | `cortex/portfolio.py` | Multi-asset MSM, marginal/stress VaR |
+| Portfolio Opt | `cortex/portfolio_opt.py` | Mean-CVaR, HRP, Min-Variance (skfolio) |
+| Regime Analytics | `cortex/regime.py` | Duration, statistics, history, transitions |
+| Model Comparison | `cortex/comparison.py` | 9-model benchmark framework |
+| News Intelligence | `cortex/news.py` | Sentiment scoring, market signals |
+| Guardian | `cortex/guardian.py` | Unified risk veto, composite scoring |
+| Circuit Breaker | `cortex/circuit_breaker.py` | Auto-halt on extreme conditions |
+| Persistence | `cortex/persistence.py` | Redis-backed model state persistence |
+| Liquidity | `cortex/liquidity.py` | Liquidity-adjusted VaR (Corwin-Schultz) |
+| Execution | `cortex/execution.py` | Smart order routing, slippage estimation |
+| Cache | `cortex/cache.py` | Async caching (cashews + Redis) |
+| ccxt Feed | `cortex/data/ccxt_feed.py` | Multi-exchange OHLCV, order book, ticker (100+ exchanges) |
+| Solana Data | `cortex/data/solana.py` | Birdeye, on-chain data fetching |
+| On-chain Events | `cortex/data/onchain_events.py` | Whale alerts, liquidation events |
 
 ### 4.3 Project Structure
 
 ```
-cortexagent/
-├── MSM-VaR_MODEL.py              # Core MSM model
-├── extreme_value_theory.py       # EVT / GPD
-├── hawkes_process.py             # Hawkes self-exciting process
-├── svj_model.py                  # Bates SVJ model
-├── copula_portfolio_var.py       # Copula dependence + regime-dependent
-├── rough_volatility.py           # Rough Bergomi
-├── multifractal_analysis.py      # Hurst exponent + MMAR
-├── portfolio_var.py              # Multi-asset portfolio VaR
-├── regime_analytics.py           # Regime temporal analysis
-├── model_comparison.py           # 9-model benchmark
-├── news_intelligence.py          # News sentiment engine
-├── guardian.py                   # Unified risk veto layer
-├── solana_data_adapter.py        # Solana DeFi data adapter
-├── demo_run.py                   # End-to-end demonstration script
-├── api/
-│   ├── main.py                   # FastAPI application entry point
-│   ├── models.py                 # Pydantic request/response schemas
-│   └── routes.py                 # 45 API endpoint handlers
-├── sdk/                          # TypeScript SDK (cortex-risk-sdk on npm)
+cortex-a-lams-var/
+├── cortex/                        # Core risk engine modules
+│   ├── msm.py                     # MSM regime detection + VaR
+│   ├── evt.py                     # EVT / GPD tail modeling
+│   ├── hawkes.py                  # Hawkes self-exciting processes
+│   ├── svj.py                     # Bates SVJ model
+│   ├── copula.py                  # 5 bivariate + vine copulas
+│   ├── rough_vol.py               # Rough Bergomi volatility
+│   ├── multifractal.py            # Hurst + MMAR spectrum
+│   ├── portfolio.py               # Multi-asset portfolio VaR
+│   ├── portfolio_opt.py           # Mean-CVaR / HRP / MinVar (skfolio)
+│   ├── regime.py                  # Regime temporal analytics
+│   ├── comparison.py              # 9-model benchmark
+│   ├── news.py                    # News sentiment engine
+│   ├── guardian.py                # Unified risk veto layer
+│   ├── circuit_breaker.py         # Circuit breaker logic
+│   ├── persistence.py             # Redis-backed model persistence
+│   ├── liquidity.py               # Liquidity-adjusted VaR
+│   ├── execution.py               # Smart order routing
+│   ├── cache.py                   # Async caching (cashews + Redis)
+│   ├── config.py                  # Engine configuration
+│   ├── data/                      # Data feed modules
+│   │   ├── ccxt_feed.py           # Multi-exchange OHLCV/orderbook (ccxt)
+│   │   ├── solana.py              # Birdeye / Solana data
+│   │   ├── onchain_events.py      # Whale alerts, liquidations
+│   │   ├── onchain_liquidity.py   # DEX pool depth
+│   │   ├── oracle.py              # Pyth/Switchboard feeds
+│   │   └── social.py              # Twitter/Discord sentiment
+│   └── ...
+├── api/                           # FastAPI REST API
+│   ├── main.py                    # App entry point + lifespan
+│   ├── stores.py                  # PersistentStore instances
+│   ├── middleware.py              # RequestID, CORS, metrics
+│   ├── routes/                    # Endpoint handlers
+│   │   ├── calibration.py
+│   │   ├── regime.py
+│   │   ├── portfolio.py
+│   │   ├── guardian.py
+│   │   └── ...
+│   └── models.py                  # Pydantic schemas
+├── sdk/                           # TypeScript SDK (cortex-risk-sdk)
 │   ├── src/
-│   │   ├── client.ts             # RiskEngineClient — 45 typed methods
-│   │   ├── types.ts              # Interfaces + zod schemas
-│   │   ├── errors.ts             # Error hierarchy
-│   │   ├── utils.ts              # Cockatiel resilience policies
-│   │   ├── websocket.ts          # RegimeStreamClient
-│   │   └── index.ts              # Public exports
-│   ├── tests/
-│   │   └── client.test.ts        # 12 SDK tests
-│   ├── examples/
-│   │   └── cortex-agent.ts       # Example trading agent
-│   ├── package.json
-│   └── tsconfig.json
-├── tests/
-│   ├── conftest.py               # Shared fixtures (returns, filter_probs)
-│   ├── test_msm_core.py          # 17 tests
-│   ├── test_extreme_value_theory.py  # 19 tests
-│   ├── test_copula_portfolio_var.py  # 35 tests
-│   ├── test_hawkes_process.py    # 35 tests
-│   ├── test_svj_model.py         # 35 tests
-│   ├── test_rough_volatility.py  # 40 tests
-│   ├── test_multifractal_analysis.py # 27 tests
-│   ├── test_portfolio_var.py     # 11 tests
-│   ├── test_regime_analytics.py  # 8 tests
-│   ├── test_model_comparison.py  # 6 tests
-│   ├── test_api_endpoints.py     # 12 tests
-│   └── test_guardian.py          # 13 tests
+│   │   ├── client.ts
+│   │   ├── types.ts
+│   │   ├── websocket.ts
+│   │   └── index.ts
+│   └── tests/
+├── tests/                         # 582 passing tests
+│   ├── conftest.py
+│   ├── test_msm_core.py
+│   ├── test_vine_copula.py        # Vine copula (pyvinecopulib)
+│   ├── test_ccxt_feed.py          # ccxt data feed
+│   ├── test_portfolio_opt.py      # skfolio optimization
+│   ├── test_persistence.py        # Redis persistence
+│   ├── test_circuit_breaker.py
+│   └── ...                        # 27 test files total
 ├── requirements.txt
 ├── Dockerfile
-├── docker-compose.yml
-├── .dockerignore
+├── docker-compose.yml             # Redis 7 + Risk Engine
+├── .env.example
 └── LICENSE
 ```
 
@@ -472,7 +509,7 @@ The REST API is served via FastAPI at `http://localhost:8000/api/v1`. Interactiv
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/guardian/assess` | Unified risk veto — composite score from EVT (30%), SVJ (25%), Hawkes (25%), Regime (20%) |
+| `POST` | `/guardian/assess` | Unified risk veto — composite score from EVT (25%), SVJ (20%), Hawkes (20%), Regime (20%), News (15%) |
 
 The Guardian returns `approved` (bool), `risk_score` (0–100), `veto_reasons`, `recommended_size`, and per-component breakdowns. Score ≥ 70 or any component > 90 triggers automatic veto.
 
@@ -580,24 +617,32 @@ MSM achieves the closest breach rate to the 5% target, confirming proper calibra
 
 ### 7.3 Test Suite
 
-261 unit tests across 12 Python test files + 12 TypeScript SDK tests, all passing:
+582 unit tests across 27 Python test files + TypeScript SDK tests, all passing:
 
-| Test File | Count | Coverage |
-|-----------|-------|----------|
-| `test_rough_volatility.py` | 40 | fBm, variogram, forecasts, edge cases |
-| `test_copula_portfolio_var.py` | 35 | 5 families, regime-dependent, tail dependence |
-| `test_hawkes_process.py` | 35 | Calibration, intensity, clusters, simulation |
-| `test_svj_model.py` | 35 | Jump detection, Bates params, MC VaR |
-| `test_multifractal_analysis.py` | 27 | Hurst, DFA, spectrum, LRD |
-| `test_extreme_value_theory.py` | 19 | GPD fit, EVT VaR, ES, diagnostics |
-| `test_msm_core.py` | 17 | Calibration, filtering, VaR, backtests |
-| `test_guardian.py` | 13 | Guardian veto, composite scoring, cache |
-| `test_api_endpoints.py` | 12 | HTTP endpoint integration tests |
-| `test_portfolio_var.py` | 11 | Multi-asset, marginal, stress VaR |
-| `test_regime_analytics.py` | 8 | Durations, statistics, history |
-| `test_model_comparison.py` | 6 | 9-model benchmark, ranking |
-| `sdk/tests/client.test.ts` | 12 | SDK client, errors, resilience |
-| **Total** | **261 + 12** | **100% pass rate** |
+| Test File | Coverage |
+|-----------|----------|
+| `test_rough_volatility.py` | fBm, variogram, forecasts, edge cases |
+| `test_copula_portfolio_var.py` | 5 bivariate families, regime-dependent, tail dependence |
+| `test_vine_copula.py` | Vine copula fit, simulate, portfolio VaR (pyvinecopulib) |
+| `test_hawkes_process.py` | Calibration, intensity, clusters, simulation |
+| `test_svj_model.py` | Jump detection, Bates params, MC VaR |
+| `test_multifractal_analysis.py` | Hurst, DFA, spectrum, LRD |
+| `test_extreme_value_theory.py` | GPD fit, EVT VaR, ES, diagnostics |
+| `test_msm_core.py` | Calibration, filtering, VaR, backtests |
+| `test_guardian.py` | Guardian veto, composite scoring, cache |
+| `test_api_endpoints.py` | HTTP endpoint integration tests |
+| `test_portfolio_var.py` | Multi-asset, marginal, stress VaR |
+| `test_portfolio_opt.py` | Mean-CVaR, HRP, MinVar, compare strategies (skfolio) |
+| `test_portfolio_risk.py` | Integrated portfolio risk assessment |
+| `test_regime_analytics.py` | Durations, statistics, history |
+| `test_model_comparison.py` | 9-model benchmark, ranking |
+| `test_persistence.py` | Redis persistence, PersistentStore lifecycle |
+| `test_ccxt_feed.py` | Multi-exchange OHLCV, order book, ticker |
+| `test_circuit_breaker.py` | Circuit breaker triggers, recovery |
+| `test_liquidity_var.py` | Corwin-Schultz spread, L-VaR |
+| `test_onchain_events.py` | Whale alerts, liquidation events |
+| `sdk/tests/client.test.ts` | SDK client, errors, resilience |
+| **Total** | **582 Python + SDK tests — 100% pass rate** |
 
 ---
 
@@ -633,6 +678,14 @@ pip install -r requirements.txt
 | uvicorn | ≥0.20.0 | ASGI server |
 | pydantic | ≥2.0 | Request/response validation |
 | websockets | ≥11.0 | WebSocket support |
+| structlog | ≥23.0 | Structured logging |
+| redis[hiredis] | ≥5.0 | Model state persistence |
+| cashews[redis] | ≥7.0 | Async caching (Redis + in-memory) |
+| pyvinecopulib | ≥0.7.0 | Vine copula modeling (optional) |
+| ccxt | ≥4.0 | Multi-exchange data feeds (optional) |
+| skfolio | ≥0.5.0 | Portfolio optimization (optional) |
+| pyextremes | ≥2.3.0 | EVT engine (optional) |
+| fbm | ≥0.3.0 | Fractional Brownian motion (optional) |
 | pytest | ≥7.0 | Test framework |
 
 ### 8.4 Running
@@ -656,7 +709,7 @@ The demo script uses `np.random.seed(42)` for reproducible synthetic data genera
 
 ## 9. Docker
 
-Run the entire Risk Engine with a single command — no Python setup required.
+Run the entire Risk Engine with a single command — no Python setup required. Docker Compose starts Redis 7 (with AOF persistence) and the Risk Engine, with automatic model state restore on startup.
 
 ### Quick Start
 
@@ -665,6 +718,10 @@ git clone https://github.com/cortex-agent/cortexagent.git
 cd cortexagent
 docker compose up --build
 ```
+
+This starts:
+- **Redis 7** (Alpine, port 6379) — model state persistence + async cache
+- **Risk Engine** (port 8000) — FastAPI with auto-restore from Redis on startup
 
 The API is available at `http://localhost:8000`. Verify with:
 
@@ -720,9 +777,11 @@ docker compose run --rm risk-engine python -m pytest tests/ -v
 3. **EVT threshold sensitivity**: GPD parameter estimates depend on the threshold u. The default 90th percentile is a heuristic; mean excess plots should be consulted for production use.
 4. **Hawkes process limitations**: The exponential kernel assumes a single decay timescale. Power-law kernels (Bacry et al., 2015) may better capture long-memory contagion.
 5. **SVJ calibration**: The Bates model has 7 free parameters. With limited data (< 500 observations), parameter identifiability may be poor, particularly for ρ and σ_v.
-6. **Copula dimensionality**: The current implementation supports bivariate and low-dimensional copulas. For portfolios with > 10 assets, vine copulas would be more appropriate.
+6. **Copula dimensionality**: Vine copulas (pyvinecopulib) now support high-dimensional dependence modeling. However, fitting vine copulas on portfolios with > 50 assets may be computationally expensive (O(d² · T) for d assets).
 7. **Rough volatility estimation**: The variogram-based Hurst estimator requires at least 100 observations for reliable estimates. Short time series may produce biased H values.
 8. **No transaction costs**: VaR estimates do not account for slippage, gas fees, or market impact — critical factors in DeFi execution.
+9. **ccxt rate limits**: Multi-exchange data fetching via ccxt is subject to per-exchange rate limits. Fetching from many exchanges in parallel may trigger throttling.
+10. **Redis dependency**: Model state persistence requires Redis. Without it, the system falls back to in-memory storage (state lost on restart).
 
 ---
 

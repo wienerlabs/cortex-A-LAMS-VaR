@@ -1,0 +1,54 @@
+# =============================================================================
+# DVC (Data Version Control) Configuration
+# =============================================================================
+# Tracks ML models, metadata, and training data across versions.
+# All paths are relative to the repository root.
+# =============================================================================
+
+[core]
+    # Auto-stage DVC files to git
+    autostage = true
+    # Remote storage for model artifacts
+    remote = local
+
+# =============================================================================
+# REMOTE STORAGE OPTIONS
+# =============================================================================
+# Uncomment and configure the appropriate remote for your environment
+
+# Local storage (default for development)
+[remote "local"]
+    url = ../model_storage
+
+# AWS S3 (production)
+# [remote "s3"]
+#     url = s3://cortex-ml-models/dvc
+#     region = us-east-1
+
+# Google Cloud Storage
+# [remote "gcs"]
+#     url = gs://cortex-ml-models/dvc
+
+# Azure Blob Storage
+# [remote "azure"]
+#     url = azure://cortex-ml-models/dvc
+
+# =============================================================================
+# CACHE SETTINGS
+# =============================================================================
+[cache]
+    # Local cache directory
+    dir = .dvc/cache
+    # Cache type (copy, symlink, hardlink, reflink)
+    type = copy
+
+# =============================================================================
+# TRACKED FILES
+# =============================================================================
+# These patterns are tracked by DVC (configured via .dvcignore)
+# - eliza/models/*.onnx
+# - eliza/models/metadata/*.json
+# - eliza/models/calibration/*.json
+# - training/perps/models/*.pkl
+# - training/perps/features/*.csv
+

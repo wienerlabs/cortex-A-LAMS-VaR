@@ -1,0 +1,16 @@
+{
+  "name": "cortex",
+  "version": "1.0.0",
+  "description": "> Autonomous Yield Optimization Protocol on Solana",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@playwright/test": "^1.58.2",
+    "js-yaml": "^4.1.1"
+  }
+}
