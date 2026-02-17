@@ -2465,17 +2465,45 @@ export class CRTXAgent {
         this.riskManager.recordTrade(0);
         console.log(`[AGENT]    Portfolio Position: ${positionId}`);
         console.log(`[AGENT]    Portfolio Value: $${this.portfolioManager.getTotalValueUsd().toFixed(2)}`);
+
+        // Best-effort debate outcome recording for empirical Bayes learning
+        try {
+          getDebateClient().recordOutcome({
+            pnl: 0,
+            size: capitalUsd,
+            token: pool.name,
+            strategy: 'lp',
+          }).catch(err => logger.warn('[CRTX] Failed to record LP debate outcome', { error: String(err) }));
+        } catch (e) { /* non-critical */ }
       } else {
         console.log(`[AGENT] ❌ LP deposit failed: ${result.error}`);
         if (result.priceImpactPct) {
           console.log(`[AGENT]    Price impact: ${result.priceImpactPct.toFixed(2)}%`);
         }
         this.riskManager.recordTrade(-0.1); // Small loss for failed trade
+
+        try {
+          getDebateClient().recordOutcome({
+            pnl: -capitalUsd * 0.01,
+            size: capitalUsd,
+            token: pool.name,
+            strategy: 'lp',
+          }).catch(err => logger.warn('[CRTX] Failed to record LP debate outcome', { error: String(err) }));
+        } catch (e) { /* non-critical */ }
       }
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       console.log(`[AGENT] ❌ LP execution error: ${errorMsg}`);
       this.riskManager.recordTrade(-0.1);
+
+      try {
+        getDebateClient().recordOutcome({
+          pnl: 0,
+          size: capitalUsd,
+          token: pool.name,
+          strategy: 'lp',
+        }).catch(err => logger.warn('[CRTX] Failed to record LP debate outcome', { error: String(err) }));
+      } catch (e) { /* non-critical */ }
     }
   }
 
@@ -2510,9 +2538,27 @@ export class CRTXAgent {
       // Record profit
       const pnlPct = (result.netProfit / amountUsd) * 100;
       this.riskManager.recordTrade(pnlPct);
+
+      try {
+        getDebateClient().recordOutcome({
+          pnl: result.netProfit,
+          size: amountUsd,
+          token: arb.symbol,
+          strategy: 'arbitrage',
+        }).catch(err => logger.warn('[CRTX] Failed to record arb debate outcome', { error: String(err) }));
+      } catch (e) { /* non-critical */ }
     } else {
       console.log(`[AGENT] ❌ Arbitrage failed: ${result.error}`);
       this.riskManager.recordTrade(-0.1); // Small loss for failed trade (gas)
+
+      try {
+        getDebateClient().recordOutcome({
+          pnl: -amountUsd * 0.001,
+          size: amountUsd,
+          token: arb.symbol,
+          strategy: 'arbitrage',
+        }).catch(err => logger.warn('[CRTX] Failed to record arb debate outcome', { error: String(err) }));
+      } catch (e) { /* non-critical */ }
     }
   }
 
@@ -2882,9 +2928,19 @@ export class CRTXAgent {
           getDebateClient().recordTradeOutcome({
             strategy: 'spot',
             success: true,
-            pnl: 0, // P&L unknown at entry time
+            pnl: 0,
             details: `Spot buy ${token.symbol} at $${entryPrice.toFixed(6)}`,
           }).catch(err => logger.warn('[CRTX] Failed to record spot outcome', { error: String(err) }));
+        } catch (e) { /* non-critical */ }
+
+        // Record for empirical Bayes debate learning
+        try {
+          getDebateClient().recordOutcome({
+            pnl: 0,
+            size: buyAmountUsd,
+            token: token.symbol,
+            strategy: 'spot',
+          }).catch(err => logger.warn('[CRTX] Failed to record spot debate outcome', { error: String(err) }));
         } catch (e) { /* non-critical */ }
       } else {
         console.log(`[AGENT] ❌ Buy failed: ${result.error}`);
@@ -2900,6 +2956,15 @@ export class CRTXAgent {
             details: `Spot buy failed for ${token.symbol}: ${result.error}`,
           }).catch(err => logger.warn('[CRTX] Failed to record spot outcome', { error: String(err) }));
         } catch (e) { /* non-critical */ }
+
+        try {
+          getDebateClient().recordOutcome({
+            pnl: -buyAmountUsd * 0.01,
+            size: buyAmountUsd,
+            token: token.symbol,
+            strategy: 'spot',
+          }).catch(err => logger.warn('[CRTX] Failed to record spot debate outcome', { error: String(err) }));
+        } catch (e) { /* non-critical */ }
       }
     } catch (error) {
       console.log(`[AGENT] ❌ Spot trading error: ${error}`);
@@ -2914,6 +2979,15 @@ export class CRTXAgent {
           loss_type: 'exception',
           details: `Spot trading exception for ${token.symbol}: ${error instanceof Error ? error.message : String(error)}`,
         }).catch(err => logger.warn('[CRTX] Failed to record spot outcome', { error: String(err) }));
+      } catch (e) { /* non-critical */ }
+
+      try {
+        getDebateClient().recordOutcome({
+          pnl: 0,
+          size: 0,
+          token: token.symbol,
+          strategy: 'spot',
+        }).catch(err => logger.warn('[CRTX] Failed to record spot debate outcome', { error: String(err) }));
       } catch (e) { /* non-critical */ }
     }
   }
