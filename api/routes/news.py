@@ -26,7 +26,7 @@ def _get_from_buffer_or_live(
     return fetch_news_intelligence(regime_state=regime_state, max_items=max_items)
 
 
-@router.get("/news/feed", response_model=NewsFeedResponse)
+@router.get("/news/feed", response_model=NewsFeedResponse, summary="Get news feed")
 def get_news_feed(
     regime_state: int = Query(None, ge=1, le=10, description="Override regime state"),
     max_items: int = Query(50, ge=1, le=200),
@@ -42,7 +42,7 @@ def get_news_feed(
     return NewsFeedResponse(**result)
 
 
-@router.get("/news/sentiment", response_model=NewsFeedResponse)
+@router.get("/news/sentiment", response_model=NewsFeedResponse, summary="Get news sentiment")
 def get_news_sentiment(
     regime_state: int = Query(None, ge=1, le=10),
     max_items: int = Query(20, ge=1, le=100),
@@ -58,7 +58,7 @@ def get_news_sentiment(
     return NewsFeedResponse(**result)
 
 
-@router.get("/news/signal", response_model=NewsMarketSignalModel)
+@router.get("/news/signal", response_model=NewsMarketSignalModel, summary="Get market signal")
 def get_news_signal(
     regime_state: int = Query(None, ge=1, le=10),
     live: bool = Query(False, description="Force live fetch instead of buffer"),
@@ -73,7 +73,7 @@ def get_news_signal(
     return NewsMarketSignalModel(**result["signal"])
 
 
-@router.get("/news/buffer-stats")
+@router.get("/news/buffer-stats", summary="News buffer health")
 def get_news_buffer_stats():
     """Health check for the background news collector."""
     from cortex.news import news_buffer

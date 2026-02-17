@@ -88,8 +88,12 @@ def _calibrate_sync(req: CalibrateRequest) -> dict:
     }
 
 
-@router.post("/calibrate")
+@router.post("/calibrate", response_model=CalibrateResponse, summary="Calibrate MSM model")
 async def calibrate(req: CalibrateRequest, async_mode: bool = Query(False)):
+    """Calibrate the Markov-Switching Multifractal model for a token.
+
+    Use async_mode=true for long calibrations — returns a task_id for polling.
+    """
     from api.tasks import create_task, run_in_background
 
     if async_mode:

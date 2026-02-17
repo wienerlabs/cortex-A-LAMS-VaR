@@ -34,8 +34,9 @@ class SetPortfolioValueRequest(BaseModel):
     value: float = Field(..., gt=0)
 
 
-@router.get("/portfolio/positions", response_model=PositionsResponse)
+@router.get("/portfolio/positions", response_model=PositionsResponse, summary="List positions")
 def get_positions():
+    """Return all open positions with total exposure and portfolio value."""
     from cortex.portfolio_risk import get_portfolio_value, get_positions as _get
 
     positions = _get()
@@ -48,35 +49,40 @@ def get_positions():
     )
 
 
-@router.post("/portfolio/positions")
+@router.post("/portfolio/positions", summary="Update position")
 def update_position(req: UpdatePositionRequest):
+    """Add or update a position in the portfolio tracker."""
     from cortex.portfolio_risk import update_position as _update
     _update(token=req.token, size_usd=req.size_usd, direction=req.direction, entry_price=req.entry_price)
     return {"status": "updated", "token": req.token}
 
 
-@router.post("/portfolio/positions/close")
+@router.post("/portfolio/positions/close", summary="Close position")
 def close_position(req: ClosePositionRequest):
+    """Close a position and record realized PnL."""
     from cortex.portfolio_risk import close_position as _close
     _close(token=req.token, pnl=req.pnl)
     return {"status": "closed", "token": req.token, "pnl": req.pnl}
 
 
-@router.post("/portfolio/value")
+@router.post("/portfolio/value", summary="Set portfolio value")
 def set_portfolio_value(req: SetPortfolioValueRequest):
+    """Set the total portfolio value used for drawdown and exposure calculations."""
     from cortex.portfolio_risk import set_portfolio_value as _set
     _set(req.value)
     return {"status": "set", "portfolio_value": req.value}
 
 
-@router.get("/portfolio/drawdown", response_model=DrawdownResponse)
+@router.get("/portfolio/drawdown", response_model=DrawdownResponse, summary="Get drawdown")
 def get_drawdown():
+    """Return daily and weekly drawdown metrics with limit breach status."""
     from cortex.portfolio_risk import get_drawdown as _get
     return DrawdownResponse(**_get())
 
 
-@router.get("/portfolio/limits")
+@router.get("/portfolio/limits", response_model=PortfolioLimitsResponse, summary="Check portfolio limits")
 def get_limits(token: str = "SOL"):
+    """Check drawdown limits and correlation exposure constraints for a token."""
     from cortex.portfolio_risk import check_limits
     return check_limits(token)
 

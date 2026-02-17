@@ -72,8 +72,12 @@ def _hawkes_calibrate_sync(req: HawkesCalibrateRequest) -> dict:
     }
 
 
-@router.post("/hawkes/calibrate")
+@router.post("/hawkes/calibrate", response_model=HawkesCalibrateResponse, summary="Calibrate Hawkes process")
 async def hawkes_calibrate(req: HawkesCalibrateRequest, async_mode: bool = Query(False)):
+    """Fit a self-exciting Hawkes point process to extreme return events.
+
+    Use async_mode=true for long calibrations — returns a task_id for polling.
+    """
     from api.tasks import create_task, run_in_background
 
     if async_mode:

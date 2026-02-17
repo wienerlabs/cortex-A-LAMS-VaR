@@ -65,9 +65,13 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self._buckets: dict[str, list[float]] = defaultdict(list)
 
     def _client_key(self, request: Request) -> str:
+        # Priority: API key > Solana wallet > IP address
         api_key = request.headers.get("x-api-key")
         if api_key:
             return f"key:{api_key}"
+        solana_pubkey = request.headers.get("x-solana-pubkey")
+        if solana_pubkey:
+            return f"wallet:{solana_pubkey}"
         forwarded = request.headers.get("x-forwarded-for")
         if forwarded:
             return f"ip:{forwarded.split(',')[0].strip()}"
