@@ -302,3 +302,81 @@ MODEL_VERSION_HISTORY_SIZE = int(os.environ.get("MODEL_VERSION_HISTORY_SIZE", "3
 
 API_VERSION = os.environ.get("API_VERSION", "1.2.0")
 
+
+# ── Startup Validation ──
+
+_POSITIVE_FLOATS = [
+    ("CACHE_TTL_SECONDS", CACHE_TTL_SECONDS),
+    ("DECISION_VALIDITY_SECONDS", DECISION_VALIDITY_SECONDS),
+    ("HALF_LIFE_HOURS", HALF_LIFE_HOURS),
+    ("SOLANA_HTTP_TIMEOUT", SOLANA_HTTP_TIMEOUT),
+    ("DEXSCREENER_TIMEOUT", DEXSCREENER_TIMEOUT),
+    ("DEXSCREENER_CACHE_TTL", DEXSCREENER_CACHE_TTL),
+    ("JUPITER_TIMEOUT", JUPITER_TIMEOUT),
+    ("PYTH_SSE_TIMEOUT", PYTH_SSE_TIMEOUT),
+    ("ONCHAIN_HTTP_TIMEOUT", ONCHAIN_HTTP_TIMEOUT),
+    ("CB_COOLDOWN_SECONDS", CB_COOLDOWN_SECONDS),
+]
+
+_POSITIVE_INTS = [
+    ("DEXSCREENER_MAX_RETRIES", DEXSCREENER_MAX_RETRIES),
+    ("JUPITER_MAX_RETRIES", JUPITER_MAX_RETRIES),
+    ("PYTH_BUFFER_DEPTH", PYTH_BUFFER_DEPTH),
+    ("DEBATE_MAX_ROUNDS", DEBATE_MAX_ROUNDS),
+    ("CB_CONSECUTIVE_CHECKS", CB_CONSECUTIVE_CHECKS),
+    ("NEWS_COLLECTOR_INTERVAL_SECONDS", NEWS_COLLECTOR_INTERVAL_SECONDS),
+    ("NEWS_BUFFER_MAX_ITEMS", NEWS_BUFFER_MAX_ITEMS),
+    ("MODEL_VERSION_HISTORY_SIZE", MODEL_VERSION_HISTORY_SIZE),
+]
+
+_BOUNDED_0_100 = [
+    ("CIRCUIT_BREAKER_THRESHOLD", CIRCUIT_BREAKER_THRESHOLD),
+    ("APPROVAL_THRESHOLD", APPROVAL_THRESHOLD),
+    ("CB_THRESHOLD", CB_THRESHOLD),
+    ("SVJ_BASE_CAP", SVJ_BASE_CAP),
+    ("REGIME_BASE_MAX", REGIME_BASE_MAX),
+]
+
+_VALID_ENGINES = {
+    "EVT_ENGINE": (EVT_ENGINE, {"native", "pyextremes"}),
+    "FBM_ENGINE": (FBM_ENGINE, {"native", "fbm"}),
+    "HAWKES_ENGINE": (HAWKES_ENGINE, {"native", "numba", "tick"}),
+    "COPULA_ENGINE": (COPULA_ENGINE, {"native", "vine"}),
+    "PORTFOLIO_OPT_ENGINE": (PORTFOLIO_OPT_ENGINE, {"native", "skfolio"}),
+    "TRADING_MODE": (TRADING_MODE, {"NORMAL", "PAPER", "LIVE"}),
+    "LOG_FORMAT": (LOG_FORMAT, {"json", "console"}),
+}
+
+
+def validate_config() -> list[str]:
+    """Validate all config values at startup. Returns list of warnings."""
+    warnings: list[str] = []
+
+    for name, val in _POSITIVE_FLOATS:
+        if val <= 0:
+            warnings.append(f"{name} must be > 0, got {val}")
+
+    for name, val in _POSITIVE_INTS:
+        if val <= 0:
+            warnings.append(f"{name} must be > 0, got {val}")
+
+    for name, val in _BOUNDED_0_100:
+        if not 0 <= val <= 100:
+            warnings.append(f"{name} must be in [0, 100], got {val}")
+
+    for name, (val, choices) in _VALID_ENGINES.items():
+        if val not in choices:
+            warnings.append(f"{name} must be one of {choices}, got '{val}'")
+
+    weight_sum = sum(GUARDIAN_WEIGHTS.values())
+    if abs(weight_sum - 1.0) > 0.05:
+        warnings.append(f"GUARDIAN_WEIGHTS sum to {weight_sum:.3f}, expected ~1.0")
+
+    if warnings:
+        import logging
+        _log = logging.getLogger(__name__)
+        for w in warnings:
+            _log.warning("Config validation: %s", w)
+
+    return warnings
+
