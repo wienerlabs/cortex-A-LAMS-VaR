@@ -15,9 +15,12 @@ import {
   PriceMath,
   TickUtil,
   PoolUtil,
+  PDAUtil,
   increaseLiquidityQuoteByInputToken,
   IGNORE_CACHE,
   NO_TOKEN_EXTENSION_CONTEXT,
+  ORCA_WHIRLPOOL_PROGRAM_ID,
+  ORCA_WHIRLPOOLS_CONFIG,
 } from '@orca-so/whirlpools-sdk';
 import { Percentage, type Wallet } from '@orca-so/common-sdk';
 import type {
@@ -47,6 +50,61 @@ export class OrcaExecutor implements IDexExecutor {
   isSupported(pool: LPPoolInfo): boolean {
     const dex = pool.dex.toLowerCase();
     return dex === 'orca' || dex.includes('whirlpool');
+  }
+
+  // Common Orca Whirlpool tick spacings (used as fee tier index in PDA derivation)
+  private static readonly TICK_SPACINGS = [64, 8, 128, 1];
+
+  /**
+   * Resolve the actual Whirlpool PDA address from token mints.
+   * DexScreener returns pair addresses that differ from the on-chain Whirlpool PDA.
+   * This tries common tick spacings and verifies the account exists on-chain.
+   * Returns the resolved address or null if not found.
+   */
+  async resolveWhirlpoolAddress(
+    tokenMintA: string,
+    tokenMintB: string,
+  ): Promise<string | null> {
+    const mintA = new PublicKey(tokenMintA);
+    const mintB = new PublicKey(tokenMintB);
+
+    // Orca requires mints in canonical order (lower pubkey first)
+    const [sortedMintA, sortedMintB] = PoolUtil.orderMints(mintA, mintB).map(
+      addr => new PublicKey(addr.toString())
+    );
+
+    for (const tickSpacing of OrcaExecutor.TICK_SPACINGS) {
+      try {
+        const pda = PDAUtil.getWhirlpool(
+          ORCA_WHIRLPOOL_PROGRAM_ID,
+          ORCA_WHIRLPOOLS_CONFIG,
+          sortedMintA,
+          sortedMintB,
+          tickSpacing,
+        );
+
+        // Verify the account exists on-chain
+        const accountInfo = await this.connection.getAccountInfo(pda.publicKey);
+        if (accountInfo) {
+          logger.info('[Orca] Resolved Whirlpool address', {
+            mintA: sortedMintA.toBase58(),
+            mintB: sortedMintB.toBase58(),
+            tickSpacing,
+            whirlpool: pda.publicKey.toBase58(),
+          });
+          return pda.publicKey.toBase58();
+        }
+      } catch (error) {
+        // PDA derivation is deterministic so errors here are unexpected, skip
+        continue;
+      }
+    }
+
+    logger.warn('[Orca] Could not resolve Whirlpool address', {
+      mintA: tokenMintA,
+      mintB: tokenMintB,
+    });
+    return null;
   }
 
   private createWalletAdapter(keypair: Keypair): Wallet {

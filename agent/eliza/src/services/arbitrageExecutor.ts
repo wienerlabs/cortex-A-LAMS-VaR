@@ -17,12 +17,14 @@ import { Connection, VersionedTransaction, Keypair, PublicKey } from '@solana/we
 import crypto from 'crypto';
 import { getSolPrice, DEFAULT_GAS_SOL } from './marketData.js';
 import { getGlobalRiskManager } from './risk/index.js';
+import { getDebateClient } from './risk/debateClient.js';
 import { getPortfolioManager } from './portfolioManager.js';
 import { guardian } from './guardian/index.js';
 import type { GuardianTradeParams } from './guardian/types.js';
 import { pmDecisionEngine, approvalQueue } from './pm/index.js';
 import type { QueueTradeParams } from './pm/types.js';
 import { createJupiterApiClient } from '@jup-ag/api';
+import { config as prodConfig } from '../config/production.js';
 import { logger } from './logger.js';
 
 // ============= TYPES =============
@@ -170,6 +172,18 @@ interface BinanceDepositAddressResponse {
   url: string;
 }
 
+interface BinanceDepositRecord {
+  id: string;
+  amount: string;
+  coin: string;
+  network: string;
+  status: number; // 0=pending, 6=credited, 1=confirmed/success
+  address: string;
+  txId: string;
+  insertTime: number;
+  confirmTimes: string;
+}
+
 async function binanceGetDepositAddress(
   config: ArbitrageConfig,
   coin: string,
@@ -198,6 +212,34 @@ async function binanceGetDepositAddress(
   return response.json() as Promise<BinanceDepositAddressResponse>;
 }
 
+async function binanceGetDepositHistory(
+  config: ArbitrageConfig,
+  coin: string,
+  startTime: number,
+): Promise<BinanceDepositRecord[]> {
+  const params: Record<string, string | number> = {
+    coin,
+    startTime,
+    timestamp: Date.now(),
+    recvWindow: 5000,
+  };
+
+  const signedQuery = signBinanceRequest(params, config.binanceSecretKey);
+  const url = `${BINANCE_API}/sapi/v1/capital/deposit/hisrec?${signedQuery}`;
+
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: { 'X-MBX-APIKEY': config.binanceApiKey },
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`Binance deposit history failed: ${error}`);
+  }
+
+  return response.json() as Promise<BinanceDepositRecord[]>;
+}
+
 // ============= TOKEN CONFIG =============
 
 const TOKENS: Record<string, { mint: string; decimals: number; binanceSymbol: string; binanceDecimals: number }> = {
@@ -223,7 +265,7 @@ async function getJupiterQuote(
   outputMint: string,
   amountLamports: number,
   walletAddress: string,
-  slippageBps: number = 100
+  slippageBps: number = prodConfig.slippage.arbitrage
 ): Promise<JupiterQuote> {
   const apiKey = process.env.JUPITER_API_KEY;
 
@@ -454,7 +496,7 @@ export class ArbitrageExecutor {
         executedQty
       );
       result.txHashes.withdrawal = withdrawal.id;
-      result.fees.withdrawal = this.getWithdrawalFee(symbol);
+      result.fees.withdrawal = await this.getWithdrawalFee(symbol);
 
       logger.info(`[ARBITRAGE] Withdrawal initiated: ${withdrawal.id}`);
 
@@ -524,7 +566,7 @@ export class ArbitrageExecutor {
 
     // Estimate fees with dynamic pricing
     const cexTradeFee = amountUsd * 0.001; // 0.1% Binance
-    const withdrawalFee = this.getWithdrawalFee(opp.symbol);
+    const withdrawalFee = await this.getWithdrawalFee(opp.symbol);
     const dexSwapFee = amountUsd * 0.003; // 0.3% Jupiter
     const gasFee = DEFAULT_GAS_SOL * solPrice; // Dynamic: 0.002 SOL * live price
 
@@ -927,6 +969,21 @@ export class ArbitrageExecutor {
    * Determine best direction and execute
    */
   async execute(opp: ArbitrageOpportunity, amountUsd: number = 1000): Promise<ArbitrageResult> {
+    // ========== OUTCOME CIRCUIT BREAKER CHECK ==========
+    try {
+      const debateClient = getDebateClient();
+      const blocked = await debateClient.isStrategyBlocked('arbitrage');
+      if (blocked) {
+        logger.warn('[ARBITRAGE] Strategy blocked by outcome circuit breaker');
+        return this.errorResult(opp, 'cex-to-dex', 'Arbitrage strategy blocked by outcome circuit breaker (too many consecutive failures)');
+      }
+    } catch (error) {
+      logger.warn('[ARBITRAGE] Outcome circuit breaker check failed, proceeding', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    // =================================================
+
     // ========== PM APPROVAL CHECK (before Guardian) ==========
     if (pmDecisionEngine.isEnabled()) {
       const pmParams: QueueTradeParams = {
@@ -977,7 +1034,7 @@ export class ArbitrageExecutor {
       outputMint: token.mint,
       amountIn: amountUsd,
       amountInUsd: amountUsd,
-      slippageBps: 100,
+      slippageBps: prodConfig.slippage.arbitrage,
       strategy: 'arbitrage',
       protocol: `${opp.buyExchange}-${opp.sellExchange}`,
       walletAddress: this.keypair?.publicKey.toBase58() || '',
@@ -997,6 +1054,7 @@ export class ArbitrageExecutor {
       protocol: 'arbitrage',
       sizeUsd: amountUsd,
       walletBalanceSol,
+      strategyType: 'arb',
     });
 
     if (!riskCheck.canTrade) {
@@ -1011,7 +1069,50 @@ export class ArbitrageExecutor {
         return this.errorResult(opp, 'cex-to-dex', `Risk check failed: ${riskCheck.blockReasons.join('; ')}`);
       }
     }
+
+    // Apply A-LAMS regime-based position scaling
+    const regimeScale = riskCheck.alamsVar?.regimePositionScale ?? 1.0;
+    if (regimeScale < 1.0) {
+      const originalAmount = amountUsd;
+      amountUsd = amountUsd * regimeScale;
+      logger.info(`[ARBITRAGE] Regime scaling applied: $${originalAmount.toFixed(0)} → $${amountUsd.toFixed(0)} (${regimeScale}x)`);
+    }
     // ========================================
+
+    // ========== ADVERSARIAL DEBATE CHECK ==========
+    if (amountUsd > 2000) {
+      try {
+        const debateClient = getDebateClient();
+        const debateResult = await debateClient.runDebate({
+          token: opp.symbol,
+          direction: `arb_${opp.buyExchange}_to_${opp.sellExchange}`,
+          trade_size_usd: amountUsd,
+          strategy: 'arbitrage',
+        });
+
+        logger.info('[ARBITRAGE] Debate result', {
+          symbol: opp.symbol,
+          decision: debateResult.final_decision,
+          confidence: debateResult.final_confidence,
+          recommended_size_pct: debateResult.recommended_size_pct,
+        });
+
+        if (debateResult.final_decision === 'reject') {
+          logger.warn('[ARBITRAGE] Trade rejected by adversarial debate', {
+            symbol: opp.symbol,
+            amountUsd,
+            reasoning: debateResult.rounds?.[debateResult.num_rounds - 1]?.arbitrator?.reasoning,
+          });
+          return this.errorResult(opp, 'cex-to-dex', `Adversarial debate rejected (confidence: ${debateResult.final_confidence.toFixed(2)})`);
+        }
+      } catch (error) {
+        logger.warn('[ARBITRAGE] Debate API unreachable, proceeding with trade', {
+          symbol: opp.symbol,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    // ==============================================
 
     const minSpread = this.config.minSpreadPct;
     const feeEstimate = 0.25; // Conservative fee estimate covering most exchanges
@@ -1039,33 +1140,53 @@ export class ArbitrageExecutor {
     const buyIsCex = isCex(opp.buyExchange);
     const sellIsCex = isCex(opp.sellExchange);
 
+    let result: ArbitrageResult;
     if (buyIsCex && !sellIsCex) {
-      // CEX → DEX (buy on Binance, sell on Jupiter)
-      return this.executeCexToDex(opp, amountUsd);
+      result = await this.executeCexToDex(opp, amountUsd);
     } else if (!buyIsCex && sellIsCex) {
-      // DEX → CEX (buy on Jupiter, sell on Binance)
       logger.info(`[ARBITRAGE] DEX→CEX path (deposit delays ~15min)`);
-      return this.executeDexToCex(opp, amountUsd);
+      result = await this.executeDexToCex(opp, amountUsd);
     } else if (!buyIsCex && !sellIsCex) {
-      // DEX → DEX (buy on Orca, sell on Meteora via Jupiter)
-      return this.executeDexToDex(opp, amountUsd);
+      result = await this.executeDexToDex(opp, amountUsd);
     } else {
-      // CEX → CEX (not supported)
       logger.info(`[ARBITRAGE] ⚠️ CEX→CEX not supported`);
       return this.errorResult(opp, 'cex-to-cex', 'CEX→CEX not supported');
     }
+
+    // ========== RECORD TRADE OUTCOME ==========
+    try {
+      const debateClient = getDebateClient();
+      debateClient.recordTradeOutcome({
+        strategy: 'arbitrage',
+        success: result.success,
+        pnl: result.netProfit,
+        loss_type: !result.success ? 'execution_failure' : undefined,
+        details: result.success
+          ? `Arb ${result.direction}: ${result.profitPct.toFixed(2)}% profit on ${opp.symbol}`
+          : `Arb failed: ${result.error}`,
+      }).catch(err => logger.warn('[ARBITRAGE] Failed to record trade outcome', {
+        error: err instanceof Error ? err.message : String(err),
+      }));
+    } catch (error) {
+      logger.warn('[ARBITRAGE] Failed to record trade outcome', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    // ==========================================
+
+    return result;
   }
 
   // ============= HELPERS =============
 
-  private getWithdrawalFee(symbol: string): number {
-    // Binance withdrawal fees (in token units, converted to USD estimate)
+  private async getWithdrawalFee(symbol: string): Promise<number> {
+    const solPrice = await getSolPrice();
     const fees: Record<string, number> = {
-      SOL: 0.01 * 200,   // 0.01 SOL
-      BONK: 0,           // Free for SPL tokens
+      SOL: 0.01 * solPrice,  // 0.01 SOL at live price
+      BONK: 0,
       JUP: 0,
       WIF: 0,
-      USDC: 1,           // $1 flat
+      USDC: 1,
     };
     return fees[symbol] || 1;
   }
@@ -1283,15 +1404,39 @@ export class ArbitrageExecutor {
   }
 
   private async waitForBinanceDeposit(symbol: string, expectedAmount: number): Promise<void> {
-    // In production: poll Binance deposit history until deposit arrives
-    // For now, just wait fixed time (deposits typically take 10-30 min)
-    const waitTime = Math.min(this.config.maxWithdrawWaitMs, 1800000); // Max 30 min
-    logger.info(`[ARBITRAGE] Waiting ${waitTime / 60000} minutes for Binance deposit...`);
-    await new Promise(resolve => setTimeout(resolve, waitTime));
+    const pollIntervalMs = 10_000;
+    const timeoutMs = parseInt(process.env.CEX_DEPOSIT_TIMEOUT_MS || '600000', 10);
+    const startTime = Date.now();
+    const tolerance = 0.01; // 1% tolerance for amount matching
 
-    // TODO: In production, poll Binance deposit history:
-    // GET /sapi/v1/capital/deposit/hisrec
-    // Check for deposit with matching coin and amount
+    logger.info(`[ARBITRAGE] Polling Binance deposit history for ${expectedAmount} ${symbol} (timeout: ${timeoutMs / 1000}s)`);
+
+    while (Date.now() - startTime < timeoutMs) {
+      try {
+        const deposits = await binanceGetDepositHistory(this.config, symbol, startTime);
+
+        for (const deposit of deposits) {
+          const depositAmount = parseFloat(deposit.amount);
+          const amountDiff = Math.abs(depositAmount - expectedAmount) / expectedAmount;
+
+          if (amountDiff <= tolerance && deposit.status === 1) {
+            logger.info(`[ARBITRAGE] ✅ Deposit confirmed: ${deposit.amount} ${symbol} (txId: ${deposit.txId})`);
+            return;
+          }
+
+          if (amountDiff <= tolerance && deposit.status !== 1) {
+            logger.info(`[ARBITRAGE] ⏳ Deposit found but pending (status: ${deposit.status}, confirmTimes: ${deposit.confirmTimes})`);
+          }
+        }
+      } catch (error) {
+        // API failures during polling should retry, not abort
+        logger.warn(`[ARBITRAGE] Deposit poll API error (will retry): ${error instanceof Error ? error.message : String(error)}`);
+      }
+
+      await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
+    }
+
+    throw new Error(`Binance deposit timeout: ${symbol} deposit not confirmed after ${timeoutMs / 1000}s`);
   }
 
   private errorResult(

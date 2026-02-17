@@ -13,7 +13,7 @@ import os
 GUARDIAN_WEIGHTS: dict[str, float] = json.loads(
     os.environ.get(
         "GUARDIAN_WEIGHTS",
-        json.dumps({"evt": 0.25, "svj": 0.20, "hawkes": 0.20, "regime": 0.20, "news": 0.15}),
+        json.dumps({"evt": 0.20, "svj": 0.15, "hawkes": 0.15, "regime": 0.15, "news": 0.10, "alams": 0.25}),
     )
 )
 CIRCUIT_BREAKER_THRESHOLD = float(os.environ.get("CIRCUIT_BREAKER_THRESHOLD", "90"))
@@ -34,6 +34,14 @@ SVJ_INTENSITY_CAP = float(os.environ.get("SVJ_INTENSITY_CAP", "20.0"))
 
 REGIME_BASE_MAX = float(os.environ.get("REGIME_BASE_MAX", "80.0"))
 REGIME_CRISIS_BONUS_MAX = float(os.environ.get("REGIME_CRISIS_BONUS_MAX", "20.0"))
+
+# ── A-LAMS VaR scoring (Guardian) ──
+
+ALAMS_SCORE_VAR_FLOOR = float(os.environ.get("ALAMS_SCORE_VAR_FLOOR", "0.01"))
+ALAMS_SCORE_VAR_CEILING = float(os.environ.get("ALAMS_SCORE_VAR_CEILING", "0.08"))
+ALAMS_CRISIS_REGIME_BONUS = float(os.environ.get("ALAMS_CRISIS_REGIME_BONUS", "20.0"))
+ALAMS_HIGH_DELTA_BONUS = float(os.environ.get("ALAMS_HIGH_DELTA_BONUS", "10.0"))
+ALAMS_HIGH_DELTA_THRESHOLD = float(os.environ.get("ALAMS_HIGH_DELTA_THRESHOLD", "0.3"))
 
 CRISIS_REGIME_HAIRCUT = float(os.environ.get("CRISIS_REGIME_HAIRCUT", "0.5"))
 NEAR_CRISIS_REGIME_HAIRCUT = float(os.environ.get("NEAR_CRISIS_REGIME_HAIRCUT", "0.75"))
@@ -149,6 +157,14 @@ JUPITER_RPC_URL = os.environ.get("JUPITER_RPC_URL", os.environ.get("SOLANA_RPC_U
 JUPITER_TIMEOUT = float(os.environ.get("JUPITER_TIMEOUT", "30"))
 JUPITER_MAX_RETRIES = int(os.environ.get("JUPITER_MAX_RETRIES", "3"))
 JUPITER_SLIPPAGE_BPS = int(os.environ.get("JUPITER_SLIPPAGE_BPS", "100"))
+
+# ── Unified Slippage (per-strategy, basis points) ──
+
+SLIPPAGE_ARBITRAGE_BPS = int(os.environ.get("SLIPPAGE_ARBITRAGE_BPS", str(JUPITER_SLIPPAGE_BPS)))
+SLIPPAGE_SPOT_BPS = int(os.environ.get("SLIPPAGE_SPOT_BPS", "100"))
+SLIPPAGE_LENDING_BPS = int(os.environ.get("SLIPPAGE_LENDING_BPS", "50"))
+SLIPPAGE_LP_DEPOSIT_BPS = int(os.environ.get("SLIPPAGE_LP_DEPOSIT_BPS", "100"))
+SLIPPAGE_LP_WITHDRAW_BPS = int(os.environ.get("SLIPPAGE_LP_WITHDRAW_BPS", "50"))
 
 # ── Execution Layer (Wave 9) ──
 

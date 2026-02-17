@@ -1,11 +1,12 @@
 /**
  * Multi-Source Sentiment Aggregator
- * 
+ *
  * Combines sentiment data from multiple sources:
- * - Twitter (40% weight)
- * - CryptoPanic (40% weight)
- * - Telegram (20% weight)
- * 
+ * - Twitter (35% weight)
+ * - CryptoPanic (30% weight)
+ * - Telegram (15% weight)
+ * - Discord (20% weight)
+ *
  * Features:
  * - Weighted sentiment scoring
  * - Confidence calculation based on data availability
@@ -16,6 +17,7 @@ import { logger } from '../logger.js';
 import { getSentimentAnalyst, type SentimentAnalysis } from './sentimentAnalyst.js';
 import { getCryptoPanicCollector, type CryptoPanicSentiment, type NewsItem, QuotaExceededError } from './cryptopanicCollector.js';
 import { getTelegramCollector, type TelegramSentiment } from './telegramCollector.js';
+import { getDiscordCollector, type DiscordSentiment } from './discordCollector.js';
 
 // ============= TYPES =============
 export type SentimentSignal = 'BULLISH' | 'BEARISH' | 'NEUTRAL';
@@ -37,12 +39,18 @@ export interface CryptoPanicSourceData extends SourceSentiment {
   bullishVotes: number;
   bearishVotes: number;
   newsCount: number;
-  topNews?: NewsItem[]; // Top news items with links
+  topNews?: NewsItem[];
 }
 
 export interface TelegramSourceData extends SourceSentiment {
   messageCount: number;
   channelCount: number;
+}
+
+export interface DiscordSourceData extends SourceSentiment {
+  messageCount: number;
+  channelCount: number;
+  guildCount: number;
 }
 
 export interface MultiSourceSentiment {
@@ -52,6 +60,7 @@ export interface MultiSourceSentiment {
     twitter: TwitterSourceData;
     cryptopanic: CryptoPanicSourceData;
     telegram: TelegramSourceData;
+    discord: DiscordSourceData;
   };
   confidence: number; // 0 to 1 (based on data availability and agreement)
   signal: SentimentSignal;
@@ -60,9 +69,10 @@ export interface MultiSourceSentiment {
 
 // ============= CONSTANTS =============
 const WEIGHTS = {
-  twitter: 0.40,      // 40% weight
-  cryptopanic: 0.40,  // 40% weight
-  telegram: 0.20,     // 20% weight
+  twitter: 0.35,      // 35% weight
+  cryptopanic: 0.30,  // 30% weight
+  telegram: 0.15,     // 15% weight
+  discord: 0.20,      // 20% weight
 };
 
 const SIGNAL_THRESHOLDS = {
@@ -78,6 +88,7 @@ export class MultiSourceAggregator {
   private sentimentAnalyst = getSentimentAnalyst();
   private cryptoPanicCollector = getCryptoPanicCollector();
   private telegramCollector = getTelegramCollector();
+  private discordCollector = getDiscordCollector();
 
   constructor() {
     logger.info('MultiSourceAggregator initialized', {
@@ -189,55 +200,86 @@ export class MultiSourceAggregator {
   }
 
   /**
+   * Fetch Discord sentiment
+   */
+  private async fetchDiscordSentiment(token: string): Promise<DiscordSourceData> {
+    try {
+      if (!this.discordCollector.isConfigured()) {
+        return {
+          score: 0,
+          volume: 0,
+          available: false,
+          error: 'Discord not configured',
+          messageCount: 0,
+          channelCount: 0,
+          guildCount: 0,
+        };
+      }
+
+      const sentiment: DiscordSentiment = await this.discordCollector.fetchSentiment(token);
+
+      const uniqueGuilds = new Set(sentiment.channels.map(c => c.guildId));
+
+      return {
+        score: sentiment.averageSentiment,
+        volume: sentiment.volume24h,
+        available: true,
+        messageCount: sentiment.totalMessages,
+        channelCount: sentiment.channels.length,
+        guildCount: uniqueGuilds.size,
+      };
+    } catch (error) {
+      logger.warn('Discord sentiment fetch failed', { token, error: (error as Error).message });
+      return {
+        score: 0,
+        volume: 0,
+        available: false,
+        error: (error as Error).message,
+        messageCount: 0,
+        channelCount: 0,
+        guildCount: 0,
+      };
+    }
+  }
+
+  /**
    * Calculate confidence based on data availability and agreement
    */
   private calculateConfidence(
     twitter: TwitterSourceData,
     cryptopanic: CryptoPanicSourceData,
-    telegram: TelegramSourceData
+    telegram: TelegramSourceData,
+    discord: DiscordSourceData
   ): number {
-    // Base confidence from availability
     let availabilityScore = 0;
     let availableCount = 0;
 
-    if (twitter.available) {
-      availabilityScore += WEIGHTS.twitter;
-      availableCount++;
-    }
-    if (cryptopanic.available) {
-      availabilityScore += WEIGHTS.cryptopanic;
-      availableCount++;
-    }
-    if (telegram.available) {
-      availabilityScore += WEIGHTS.telegram;
-      availableCount++;
-    }
+    if (twitter.available) { availabilityScore += WEIGHTS.twitter; availableCount++; }
+    if (cryptopanic.available) { availabilityScore += WEIGHTS.cryptopanic; availableCount++; }
+    if (telegram.available) { availabilityScore += WEIGHTS.telegram; availableCount++; }
+    if (discord.available) { availabilityScore += WEIGHTS.discord; availableCount++; }
 
-    // If no sources available, confidence is 0
     if (availableCount === 0) return 0;
 
-    // Agreement score (how much sources agree)
+    // Agreement score
     const scores: number[] = [];
     if (twitter.available) scores.push(twitter.score);
     if (cryptopanic.available) scores.push(cryptopanic.score);
     if (telegram.available) scores.push(telegram.score);
+    if (discord.available) scores.push(discord.score);
 
-    // Calculate standard deviation of scores
     const mean = scores.reduce((sum, s) => sum + s, 0) / scores.length;
     const variance = scores.reduce((sum, s) => sum + Math.pow(s - mean, 2), 0) / scores.length;
     const stdDev = Math.sqrt(variance);
-
-    // Agreement score: lower stdDev = higher agreement
-    // stdDev ranges from 0 (perfect agreement) to ~1 (max disagreement)
     const agreementScore = Math.max(0, 1 - stdDev);
 
-    // Volume boost: higher volume = higher confidence
+    // Volume boost
     let volumeBoost = 0;
-    if (twitter.available && twitter.tweetCount > 50) volumeBoost += 0.1;
-    if (cryptopanic.available && cryptopanic.newsCount > 10) volumeBoost += 0.1;
-    if (telegram.available && telegram.messageCount > 100) volumeBoost += 0.1;
+    if (twitter.available && twitter.tweetCount > 50) volumeBoost += 0.075;
+    if (cryptopanic.available && cryptopanic.newsCount > 10) volumeBoost += 0.075;
+    if (telegram.available && telegram.messageCount > 100) volumeBoost += 0.075;
+    if (discord.available && discord.messageCount > 50) volumeBoost += 0.075;
 
-    // Combine: 50% availability, 40% agreement, 10% volume
     const confidence = Math.min(1, (
       availabilityScore * 0.5 +
       agreementScore * 0.4 +
@@ -272,10 +314,11 @@ export class MultiSourceAggregator {
     logger.info('Aggregating multi-source sentiment', { token });
 
     // Fetch from all sources in parallel
-    const [twitter, cryptopanic, telegram] = await Promise.all([
+    const [twitter, cryptopanic, telegram, discord] = await Promise.all([
       this.fetchTwitterSentiment(token),
       this.fetchCryptoPanicSentiment(token),
       this.fetchTelegramSentiment(token),
+      this.fetchDiscordSentiment(token),
     ]);
 
     // Calculate weighted average score
@@ -294,14 +337,13 @@ export class MultiSourceAggregator {
       weightedScore += telegram.score * WEIGHTS.telegram;
       totalWeight += WEIGHTS.telegram;
     }
+    if (discord.available) {
+      weightedScore += discord.score * WEIGHTS.discord;
+      totalWeight += WEIGHTS.discord;
+    }
 
-    // Normalize by total weight (in case some sources unavailable)
     const overallScore = totalWeight > 0 ? weightedScore / totalWeight : 0;
-
-    // Calculate confidence
-    const confidence = this.calculateConfidence(twitter, cryptopanic, telegram);
-
-    // Determine signal
+    const confidence = this.calculateConfidence(twitter, cryptopanic, telegram, discord);
     const signal = this.determineSignal(overallScore, confidence);
 
     const result: MultiSourceSentiment = {
@@ -311,6 +353,7 @@ export class MultiSourceAggregator {
         twitter,
         cryptopanic,
         telegram,
+        discord,
       },
       confidence,
       signal,
@@ -326,6 +369,7 @@ export class MultiSourceAggregator {
         twitter: twitter.available,
         cryptopanic: cryptopanic.available,
         telegram: telegram.available,
+        discord: discord.available,
       },
     });
 

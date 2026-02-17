@@ -18,6 +18,7 @@
  */
 
 import { Keypair, Connection, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
+import { getSolanaConnection, getActiveRpcUrl, recordRpcFailure, recordRpcSuccess } from '../services/solana/connection.js';
 import { TOKEN_PROGRAM_ID, getMint } from '@solana/spl-token';
 import bs58 from 'bs58';
 import { RiskManager } from '../services/riskManager.js';
@@ -41,6 +42,7 @@ import { LPPositionMonitor } from '../services/lpExecutor/lpPositionMonitor.js';
 import { ExitManager } from '../services/trading/exitManager.js';
 import type { SpotPosition, ApprovedToken, ExitLevels } from '../services/trading/types.js';
 import { LendingPositionMonitor, type TrackedLendingPosition } from '../services/lending/lendingPositionMonitor.js';
+import { getDebateClient } from '../services/risk/debateClient.js';
 
 // Consensus system imports
 import {
@@ -394,10 +396,14 @@ export class CRTXAgent {
    * Initialize wallet from private key
    */
   private initializeWallet(): void {
-    // Initialize Solana connection
-    const rpcUrl = this.config.solanaRpcUrl || 'https://api.mainnet-beta.solana.com';
-    this.connection = new Connection(rpcUrl, 'confirmed');
-    logger.info('[CRTX] Solana connection initialized', { rpcUrl: rpcUrl.slice(0, 30) + '...' });
+    // Initialize Solana connection — use failover unless explicit rpcUrl in config
+    if (this.config.solanaRpcUrl) {
+      this.connection = new Connection(this.config.solanaRpcUrl, 'confirmed');
+      logger.info('[CRTX] Solana connection initialized (config override)', { rpcUrl: this.config.solanaRpcUrl.slice(0, 30) + '...' });
+    } else {
+      this.connection = getSolanaConnection();
+      logger.info('[CRTX] Solana connection initialized (failover)', { rpcUrl: getActiveRpcUrl().slice(0, 30) + '...' });
+    }
 
     if (!this.config.solanaPrivateKey) {
       logger.info('[CRTX] No wallet configured (dry-run mode only)');
@@ -562,6 +568,7 @@ export class CRTXAgent {
 
       // Fetch SOL balance
       const solBalance = await this.connection.getBalance(walletAddress);
+      recordRpcSuccess();
       const solAmount = solBalance / LAMPORTS_PER_SOL;
 
       // Fetch SOL price from multiple sources (fallback chain)
@@ -662,6 +669,7 @@ export class CRTXAgent {
 
       return walletInfo;
     } catch (error) {
+      recordRpcFailure();
       logger.error('[CRTX] Failed to fetch wallet info', { error });
       return null;
     }
@@ -1003,7 +1011,7 @@ export class CRTXAgent {
 
     // ===== ML-ENHANCED LP POOL EVALUATION =====
     // Pre-filter pools with scam filters BEFORE fetching ML features (saves API calls)
-    const ALLOWED_TOKENS = ['SOL', 'USDC', 'USDT', 'JUP', 'BONK', 'mSOL', 'stSOL', 'jitoSOL', 'RAY', 'ORCA'];
+    const ALLOWED_TOKENS = ['SOL', 'USDC', 'USDT', 'JUP', 'BONK', 'MSOL', 'STSOL', 'JITOSOL', 'RAY', 'ORCA'];
     const MAX_APY = 500;        // Production threshold - filters unrealistic APY pools
     const MIN_TVL = 300_000;    // Lowered to $300k - smaller pools can be legitimate on Solana
     const MIN_VOLUME_TVL = 0.3;
@@ -1631,7 +1639,7 @@ export class CRTXAgent {
       console.log(`\n[AGENT] 💧 Evaluating ${snapshot.lpPools.length} LP pools...`);
 
       // Pre-filter pools with scam filters
-      const ALLOWED_TOKENS = ['SOL', 'USDC', 'USDT', 'JUP', 'BONK', 'mSOL', 'stSOL', 'jitoSOL', 'RAY', 'ORCA'];
+      const ALLOWED_TOKENS = ['SOL', 'USDC', 'USDT', 'JUP', 'BONK', 'MSOL', 'STSOL', 'JITOSOL', 'RAY', 'ORCA'];
       const MAX_APY = 500;
       const MIN_TVL = 100_000;
       const MIN_VOLUME_TVL = 0.3;
@@ -1648,13 +1656,6 @@ export class CRTXAgent {
         const dex = pool.dex.toLowerCase();
         if (dex.includes('raydium') || dex.includes('ray')) {
           console.log(`[AGENT] ❌ Rejecting ${pool.dex} pool ${pool.name} (CLMM too complex)`);
-          return false;
-        }
-
-        // Reject Orca pools from DexScreener (address mismatch - DexScreener returns pair addresses, not Whirlpool addresses)
-        // TODO: Re-enable when we can fetch actual Whirlpool addresses from Orca API
-        if (dex.includes('orca') && pool.address) {
-          console.log(`[AGENT] ❌ Rejecting ${pool.dex} pool ${pool.name} (DexScreener address incompatible with Orca SDK)`);
           return false;
         }
 
@@ -2384,8 +2385,23 @@ export class CRTXAgent {
     const token0Decimals = stableTokens.includes(token0Symbol) ? 6 : 9;
     const token1Decimals = stableTokens.includes(token1Symbol) ? 6 : 9;
 
+    // For Orca pools, resolve the actual Whirlpool PDA address from token mints.
+    // DexScreener returns pair addresses that don't work with the Orca SDK.
+    let resolvedAddress = pool.address;
+    const isOrca = pool.dex.toLowerCase().includes('orca');
+    if (isOrca && token0Mint && token1Mint) {
+      const whirlpoolAddress = await this.lpExecutor.resolveOrcaWhirlpoolAddress(token0Mint, token1Mint);
+      if (whirlpoolAddress) {
+        console.log(`[AGENT] 🔄 Resolved Orca Whirlpool address: ${pool.address} → ${whirlpoolAddress}`);
+        resolvedAddress = whirlpoolAddress;
+      } else {
+        console.log(`[AGENT] ⚠️ Could not resolve Whirlpool address for ${pool.name}, skipping`);
+        return;
+      }
+    }
+
     const lpPoolInfo: LPPoolInfo = {
-      address: pool.address,
+      address: resolvedAddress,
       name: pool.name,
       dex: pool.dex as SupportedDex,
       token0: {
@@ -2694,6 +2710,22 @@ export class CRTXAgent {
     const spotData = opp.raw as any;
     const token = spotData.token;
 
+    // ========== OUTCOME CIRCUIT BREAKER CHECK ==========
+    try {
+      const debateClient = getDebateClient();
+      const blocked = await debateClient.isStrategyBlocked('spot');
+      if (blocked) {
+        logger.warn('[CRTX] Spot strategy blocked by outcome circuit breaker', { token: token.symbol });
+        console.log(`[AGENT] ❌ Spot strategy blocked by outcome circuit breaker`);
+        return;
+      }
+    } catch (error) {
+      logger.warn('[CRTX] Outcome circuit breaker check failed, proceeding', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    // =================================================
+
     if (this.config.dryRun) {
       console.log('[AGENT] 📝 DRY RUN - No actual execution');
       console.log(`[AGENT]    Would buy ${token.symbol} spot`);
@@ -2703,6 +2735,49 @@ export class CRTXAgent {
       console.log('[AGENT] ✅ Done (simulated)');
       return;
     }
+
+    // ========== ADVERSARIAL DEBATE CHECK (low confidence) ==========
+    if (opp.confidence < 0.7) {
+      try {
+        const debateClient = getDebateClient();
+        const debateResult = await debateClient.runDebate({
+          token: token.symbol || token.address,
+          direction: 'buy',
+          trade_size_usd: Math.min(
+            this.riskManager.calculatePositionSize({
+              modelConfidence: opp.confidence,
+              currentVolatility24h: this.getVolatility(),
+              portfolioValueUsd: this.config.portfolioValueUsd,
+            }).positionUsd,
+            2000,
+          ),
+          strategy: 'spot',
+        });
+
+        logger.info('[CRTX] Spot debate result', {
+          token: token.symbol,
+          decision: debateResult.final_decision,
+          confidence: debateResult.final_confidence,
+          recommended_size_pct: debateResult.recommended_size_pct,
+        });
+
+        if (debateResult.final_decision === 'reject') {
+          logger.warn('[CRTX] Spot trade rejected by adversarial debate', {
+            token: token.symbol,
+            tradeConfidence: opp.confidence,
+            reasoning: debateResult.rounds?.[debateResult.num_rounds - 1]?.arbitrator?.reasoning,
+          });
+          console.log(`[AGENT] ❌ Spot trade rejected by adversarial debate (confidence: ${debateResult.final_confidence.toFixed(2)})`);
+          return;
+        }
+      } catch (error) {
+        logger.warn('[CRTX] Debate API unreachable for spot trade, proceeding', {
+          token: token.symbol,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    // ==============================================================
 
     // Live spot trading execution
     try {
@@ -2782,14 +2857,46 @@ export class CRTXAgent {
           entrySize: actualTokenAmount, // Store actual token amount, not raw lamports
         });
 
-        this.riskManager.recordTrade(0.5); // Positive outcome for successful buy
+        this.riskManager.recordTrade(0.5);
+
+        // Record success outcome for circuit breaker
+        try {
+          getDebateClient().recordTradeOutcome({
+            strategy: 'spot',
+            success: true,
+            pnl: 0, // P&L unknown at entry time
+            details: `Spot buy ${token.symbol} at $${entryPrice.toFixed(6)}`,
+          }).catch(err => logger.warn('[CRTX] Failed to record spot outcome', { error: String(err) }));
+        } catch (e) { /* non-critical */ }
       } else {
         console.log(`[AGENT] ❌ Buy failed: ${result.error}`);
-        this.riskManager.recordTrade(-0.3); // Negative outcome for failed buy
+        this.riskManager.recordTrade(-0.3);
+
+        // Record failure outcome for circuit breaker
+        try {
+          getDebateClient().recordTradeOutcome({
+            strategy: 'spot',
+            success: false,
+            pnl: -buyAmountUsd * 0.01,
+            loss_type: 'execution_failure',
+            details: `Spot buy failed for ${token.symbol}: ${result.error}`,
+          }).catch(err => logger.warn('[CRTX] Failed to record spot outcome', { error: String(err) }));
+        } catch (e) { /* non-critical */ }
       }
     } catch (error) {
       console.log(`[AGENT] ❌ Spot trading error: ${error}`);
       this.riskManager.recordTrade(-0.1);
+
+      // Record error outcome for circuit breaker
+      try {
+        getDebateClient().recordTradeOutcome({
+          strategy: 'spot',
+          success: false,
+          pnl: 0,
+          loss_type: 'exception',
+          details: `Spot trading exception for ${token.symbol}: ${error instanceof Error ? error.message : String(error)}`,
+        }).catch(err => logger.warn('[CRTX] Failed to record spot outcome', { error: String(err) }));
+      } catch (e) { /* non-critical */ }
     }
   }
 

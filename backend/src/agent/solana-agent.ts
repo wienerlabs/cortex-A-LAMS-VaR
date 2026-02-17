@@ -34,6 +34,7 @@ export class CortexSolanaAgent {
   private lastResetDate: string = new Date().toISOString().split("T")[0];
   private ownerPublicKey: string;
   private useConvex: boolean;
+  private cachedSolPriceUsd: number = 0;
 
   constructor(
     privateKeyBase58: string,
@@ -119,6 +120,22 @@ export class CortexSolanaAgent {
     }
   }
 
+  private async getSolPriceUsd(): Promise<number> {
+    try {
+      const price = await this.getTokenPriceUsd(KNOWN_TOKENS.SOL.toBase58());
+      if (price > 0) {
+        this.cachedSolPriceUsd = price;
+        return price;
+      }
+    } catch {
+      // fall through to cache
+    }
+    if (this.cachedSolPriceUsd > 0) {
+      return this.cachedSolPriceUsd;
+    }
+    throw new Error("Unable to fetch SOL price and no cached price available");
+  }
+
   private resetDailyLimitIfNeeded(): void {
     const today = new Date().toISOString().split("T")[0];
     if (today !== this.lastResetDate) {
@@ -171,7 +188,7 @@ export class CortexSolanaAgent {
   }
 
   async swap(params: TradeParams): Promise<SwapResult> {
-    const estimatedUsd = params.amountIn * 200; 
+    const estimatedUsd = params.amountIn * (await this.getSolPriceUsd());
     this.validateAction("swap", estimatedUsd);
 
     const swapParams = {
@@ -267,7 +284,7 @@ export class CortexSolanaAgent {
   }
 
   async stakeSOL(amount: number): Promise<string> {
-    const estimatedUsd = amount * 200;
+    const estimatedUsd = amount * (await this.getSolPriceUsd());
     this.validateAction("stake", estimatedUsd);
 
     const stakeParams = { amount };

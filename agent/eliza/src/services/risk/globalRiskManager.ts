@@ -13,9 +13,14 @@
  */
 import { Connection } from '@solana/web3.js';
 import { logger } from '../logger.js';
+import { getDb } from '../db/index.js';
+import { getSolanaConnection } from '../solana/connection.js';
 import { getPortfolioManager, type PortfolioManager } from '../portfolioManager.js';
 import { OracleService, DEFAULT_ORACLE_CONFIG } from './oracleService.js';
 import { GasService, DEFAULT_GAS_CONFIG, COMPUTE_UNITS } from './gasService.js';
+import type Database from 'better-sqlite3';
+import { ALAMSVaRClient } from './alamsVarClient.js';
+import { RegimeDetector } from '../analysis/regimeDetector.js';
 import type {
   GlobalRiskConfig,
   GlobalRiskStatus,
@@ -33,7 +38,13 @@ import type {
   RiskAlert,
   OracleStatus,
   GasBudgetStatus,
+  ALAMSVaRStatus,
+  ALAMSVaRConfig,
+  StrategyVaRThresholds,
+  StrategyType,
+  StrategyRiskTier,
 } from './types.js';
+import { STRATEGY_RISK_TIERS } from './types.js';
 
 // ============= DEFAULT CONFIGURATION =============
 
@@ -65,6 +76,30 @@ export const DEFAULT_GLOBAL_RISK_CONFIG: GlobalRiskConfig = {
   gasBudgetConfig: DEFAULT_GAS_CONFIG,
 };
 
+// ============= PER-STRATEGY VAR THRESHOLDS =============
+
+export const DEFAULT_STRATEGY_VAR_THRESHOLDS: StrategyVaRThresholds = {
+  spot: parseFloat(process.env.ALAMS_VAR_THRESHOLD_SPOT || '0.08'),
+  lp: parseFloat(process.env.ALAMS_VAR_THRESHOLD_LP || '0.06'),
+  arb: parseFloat(process.env.ALAMS_VAR_THRESHOLD_ARB || '0.05'),
+  perps: parseFloat(process.env.ALAMS_VAR_THRESHOLD_PERPS || '0.03'),
+  leverage: parseFloat(process.env.ALAMS_VAR_THRESHOLD_PERPS || '0.03'),
+  margin: parseFloat(process.env.ALAMS_VAR_THRESHOLD_PERPS || '0.03'),
+};
+
+// ============= REGIME POSITION SCALING =============
+
+export function getPositionScaleForRegime(regime: number): number {
+  if (regime >= 4) return 0.25;
+  if (regime === 3) return 0.5;
+  if (regime === 2) return 0.75;
+  return 1.0;
+}
+
+export function getStrategyRiskTier(strategyType: StrategyType): StrategyRiskTier {
+  return STRATEGY_RISK_TIERS[strategyType] ?? 'medium';
+}
+
 // Major assets for classification
 const MAJOR_ASSETS = ['BTC', 'ETH', 'SOL', 'USDC', 'USDT'];
 const MIDCAP_ASSETS = ['JUP', 'RAY', 'ORCA', 'mSOL', 'stSOL', 'jitoSOL', 'PYTH', 'JTO'];
@@ -76,8 +111,10 @@ export class GlobalRiskManager {
   private portfolioManager: PortfolioManager;
   private oracleService: OracleService;
   private gasService: GasService;
+  private alamsClient: ALAMSVaRClient;
   private connection: Connection;
-  
+  private db: Database.Database;
+
   // Drawdown tracking
   private peakValueUsd: number = 0;
   private dayStartValueUsd: number = 0;
@@ -86,23 +123,26 @@ export class GlobalRiskManager {
   private dayStartTimestamp: number = 0;
   private weekStartTimestamp: number = 0;
   private monthStartTimestamp: number = 0;
-  
+
   // Circuit breaker state
   private circuitBreakerState: CircuitBreakerState = 'ACTIVE';
   private lastCircuitBreakerTrigger?: Date;
   private circuitBreakerReason?: string;
-  
+
   // Position tracking for exposure calculation
   private trackedPositions: Map<string, TrackedPosition> = new Map();
-  
+
   // Alerts
   private alerts: RiskAlert[] = [];
-  
+
   // Price cache for exposure calculations
   private priceCache: Map<string, number> = new Map();
 
   // Dry-run mode flag (allows simulation without wallet)
   private isDryRun: boolean = false;
+
+  // Optional RegimeDetector for A-LAMS regime sync
+  private regimeDetector: RegimeDetector | null = null;
 
   constructor(
     config: Partial<GlobalRiskConfig> = {},
@@ -110,24 +150,142 @@ export class GlobalRiskManager {
     dryRun: boolean = false
   ) {
     this.config = { ...DEFAULT_GLOBAL_RISK_CONFIG, ...config };
-    this.connection = new Connection(
-      rpcUrl || process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
-      'confirmed'
-    );
+    this.connection = rpcUrl
+      ? new Connection(rpcUrl, 'confirmed')
+      : getSolanaConnection();
 
     this.isDryRun = dryRun;
+    this.db = getDb();
     this.portfolioManager = getPortfolioManager();
     this.oracleService = new OracleService(rpcUrl, this.config.oracleConfig);
     this.gasService = new GasService(rpcUrl, this.config.gasBudgetConfig);
+    this.alamsClient = new ALAMSVaRClient(this.config.alamsVarConfig);
 
-    // Initialize period tracking
-    this.initializePeriodTracking();
+    // Try to load persisted risk state first
+    const loaded = this.loadRiskState();
+    if (!loaded) {
+      // No persisted state — initialize fresh period tracking
+      this.initializePeriodTracking();
+    }
+
+    // Load persisted alerts
+    this.loadAlerts();
 
     logger.info('GlobalRiskManager initialized', {
       drawdownLimits: this.config.drawdownLimits,
       exposureLimits: this.config.exposureLimits,
       dryRun: this.isDryRun,
+      circuitBreaker: this.circuitBreakerState,
+      restoredFromDb: loaded,
     });
+  }
+
+  /**
+   * Register a RegimeDetector so A-LAMS regime overrides propagate to it.
+   */
+  setRegimeDetector(detector: RegimeDetector): void {
+    this.regimeDetector = detector;
+  }
+
+  /**
+   * Sync A-LAMS regime to the TS RegimeDetector (if registered).
+   */
+  private syncAlamsRegimeToDetector(alamsRegime: number): void {
+    if (this.regimeDetector) {
+      this.regimeDetector.setRegimeOverride(alamsRegime);
+    }
+  }
+
+  // ============= RISK STATE PERSISTENCE (SQLite) =============
+
+  private loadRiskState(): boolean {
+    try {
+      const row = this.db.prepare('SELECT * FROM risk_state WHERE id = 1').get() as any;
+      if (!row) return false;
+
+      this.circuitBreakerState = row.circuit_breaker_state as CircuitBreakerState;
+      this.circuitBreakerReason = row.circuit_breaker_reason || undefined;
+      this.lastCircuitBreakerTrigger = row.last_circuit_breaker_trigger
+        ? new Date(row.last_circuit_breaker_trigger)
+        : undefined;
+      this.peakValueUsd = row.peak_value_usd;
+      this.dayStartValueUsd = row.day_start_value_usd;
+      this.weekStartValueUsd = row.week_start_value_usd;
+      this.monthStartValueUsd = row.month_start_value_usd;
+      this.dayStartTimestamp = row.day_start_timestamp;
+      this.weekStartTimestamp = row.week_start_timestamp;
+      this.monthStartTimestamp = row.month_start_timestamp;
+
+      logger.info('Risk state restored from DB', {
+        circuitBreaker: this.circuitBreakerState,
+        peakValue: this.peakValueUsd,
+      });
+      return true;
+    } catch (error) {
+      logger.error('Failed to load risk state from DB', { error });
+      return false;
+    }
+  }
+
+  private persistRiskState(): void {
+    try {
+      this.db.prepare(`
+        INSERT OR REPLACE INTO risk_state
+        (id, circuit_breaker_state, circuit_breaker_reason, last_circuit_breaker_trigger,
+         peak_value_usd, day_start_value_usd, week_start_value_usd, month_start_value_usd,
+         day_start_timestamp, week_start_timestamp, month_start_timestamp)
+        VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        this.circuitBreakerState,
+        this.circuitBreakerReason || null,
+        this.lastCircuitBreakerTrigger ? this.lastCircuitBreakerTrigger.getTime() : null,
+        this.peakValueUsd,
+        this.dayStartValueUsd,
+        this.weekStartValueUsd,
+        this.monthStartValueUsd,
+        this.dayStartTimestamp,
+        this.weekStartTimestamp,
+        this.monthStartTimestamp,
+      );
+    } catch (error) {
+      logger.error('Failed to persist risk state', { error });
+    }
+  }
+
+  private persistAlert(alert: RiskAlert): void {
+    try {
+      this.db.prepare(`
+        INSERT OR REPLACE INTO risk_alerts (id, timestamp, severity, category, message, data)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(
+        alert.id,
+        alert.timestamp.getTime(),
+        alert.severity,
+        alert.category,
+        alert.message,
+        alert.data ? JSON.stringify(alert.data) : null,
+      );
+    } catch (error) {
+      logger.error('Failed to persist risk alert', { error });
+    }
+  }
+
+  private loadAlerts(): void {
+    try {
+      const rows = this.db.prepare(
+        'SELECT * FROM risk_alerts ORDER BY timestamp DESC LIMIT 100'
+      ).all() as any[];
+      this.alerts = rows.map(r => ({
+        id: r.id,
+        timestamp: new Date(r.timestamp),
+        severity: r.severity,
+        category: r.category,
+        message: r.message,
+        data: r.data ? JSON.parse(r.data) : undefined,
+      })).reverse();
+    } catch (error) {
+      logger.error('Failed to load risk alerts from DB', { error });
+    }
   }
 
   /**
@@ -136,29 +294,31 @@ export class GlobalRiskManager {
   private initializePeriodTracking(): void {
     const now = Date.now();
     const currentValue = this.portfolioManager.getTotalValueUsd();
-    
+
     // Initialize peak
     this.peakValueUsd = currentValue;
-    
+
     // Initialize day start
     const dayStart = new Date(now);
     dayStart.setUTCHours(0, 0, 0, 0);
     this.dayStartTimestamp = dayStart.getTime();
     this.dayStartValueUsd = currentValue;
-    
+
     // Initialize week start (Monday)
     const weekStart = new Date(now);
     weekStart.setUTCHours(0, 0, 0, 0);
     weekStart.setUTCDate(weekStart.getUTCDate() - weekStart.getUTCDay() + 1);
     this.weekStartTimestamp = weekStart.getTime();
     this.weekStartValueUsd = currentValue;
-    
+
     // Initialize month start
     const monthStart = new Date(now);
     monthStart.setUTCHours(0, 0, 0, 0);
     monthStart.setUTCDate(1);
     this.monthStartTimestamp = monthStart.getTime();
     this.monthStartValueUsd = currentValue;
+
+    this.persistRiskState();
   }
 
   /**
@@ -168,12 +328,15 @@ export class GlobalRiskManager {
     const now = Date.now();
     const currentValue = this.portfolioManager.getTotalValueUsd();
 
+    let changed = false;
+
     // Check day reset
     const todayStart = new Date(now);
     todayStart.setUTCHours(0, 0, 0, 0);
     if (todayStart.getTime() > this.dayStartTimestamp) {
       this.dayStartTimestamp = todayStart.getTime();
       this.dayStartValueUsd = currentValue;
+      changed = true;
       logger.info('Day reset - drawdown tracking reset');
     }
 
@@ -184,6 +347,7 @@ export class GlobalRiskManager {
     if (thisWeekStart.getTime() > this.weekStartTimestamp) {
       this.weekStartTimestamp = thisWeekStart.getTime();
       this.weekStartValueUsd = currentValue;
+      changed = true;
       logger.info('Week reset - drawdown tracking reset');
     }
 
@@ -194,11 +358,16 @@ export class GlobalRiskManager {
     if (thisMonthStart.getTime() > this.monthStartTimestamp) {
       this.monthStartTimestamp = thisMonthStart.getTime();
       this.monthStartValueUsd = currentValue;
+      changed = true;
       // Also reset circuit breaker on new month if in LOCKDOWN
       if (this.circuitBreakerState === 'LOCKDOWN') {
         this.circuitBreakerState = 'ACTIVE';
         logger.info('Month reset - circuit breaker reset from LOCKDOWN');
       }
+    }
+
+    if (changed) {
+      this.persistRiskState();
     }
   }
 
@@ -246,11 +415,18 @@ export class GlobalRiskManager {
       triggerReason = `Daily drawdown ${dailyDrawdownPct.toFixed(2)}% >= ${this.config.drawdownLimits.daily}%`;
     }
 
+    // Update peak value in DB
+    if (currentValue > this.peakValueUsd) {
+      this.persistRiskState();
+    }
+
     // Update state if changed
     if (newState !== this.circuitBreakerState && newState !== 'ACTIVE') {
       this.circuitBreakerState = newState;
       this.lastCircuitBreakerTrigger = new Date();
       this.circuitBreakerReason = triggerReason;
+
+      this.persistRiskState();
 
       this.addAlert({
         severity: newState === 'LOCKDOWN' ? 'emergency' : 'critical',
@@ -305,6 +481,7 @@ export class GlobalRiskManager {
 
     this.circuitBreakerState = 'ACTIVE';
     this.circuitBreakerReason = undefined;
+    this.persistRiskState();
     logger.info('Circuit breaker manually reset');
     return true;
   }
@@ -494,8 +671,9 @@ export class GlobalRiskManager {
     };
 
     this.alerts.push(alert);
+    this.persistAlert(alert);
 
-    // Keep only last 100 alerts
+    // Keep only last 100 alerts in memory
     if (this.alerts.length > 100) {
       this.alerts = this.alerts.slice(-100);
     }
@@ -708,6 +886,7 @@ export class GlobalRiskManager {
     protocol: string;
     sizeUsd: number;
     walletBalanceSol: number;
+    strategyType?: StrategyType;
   }): Promise<GlobalRiskStatus> {
     const blockReasons: string[] = [];
     const oracleStatuses = new Map<string, OracleStatus>();
@@ -760,6 +939,70 @@ export class GlobalRiskManager {
       blockReasons.push('Insufficient gas reserve for emergency exit');
     }
 
+    // 6. A-LAMS VaR check — BLOCKING for high-risk strategies, non-blocking for others
+    const strategy = params.strategyType ?? 'spot';
+    const riskTier = getStrategyRiskTier(strategy);
+    const thresholds = this.config.strategyVarThresholds ?? DEFAULT_STRATEGY_VAR_THRESHOLDS;
+    const maxVar = thresholds[strategy] ?? thresholds.spot;
+
+    let alamsVar: ALAMSVaRStatus = { available: false, result: null };
+    try {
+      const varResult = await this.alamsClient.calculateVaR({
+        confidence: 0.95,
+        trade_size_usd: params.sizeUsd,
+      });
+
+      const regimeScale = getPositionScaleForRegime(varResult.current_regime);
+
+      alamsVar = {
+        available: true,
+        result: varResult,
+        fetchedAt: Date.now(),
+        regimePositionScale: regimeScale,
+      };
+
+      // Sync A-LAMS regime to TS RegimeDetector
+      this.syncAlamsRegimeToDetector(varResult.current_regime);
+
+      if (varResult.var_total > maxVar) {
+        blockReasons.push(
+          `A-LAMS VaR ${(varResult.var_total * 100).toFixed(2)}% exceeds ${strategy} threshold ${(maxVar * 100).toFixed(1)}%`
+        );
+      }
+
+      if (varResult.current_regime >= 4) {
+        blockReasons.push(
+          `A-LAMS crisis regime detected (regime ${varResult.current_regime})`
+        );
+      }
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : 'Unknown error';
+      alamsVar = {
+        available: false,
+        result: null,
+        error: errMsg,
+      };
+
+      if (riskTier === 'high') {
+        // BLOCKING for high-risk strategies — fail-safe
+        blockReasons.push(
+          `A-LAMS VaR API unreachable — blocking ${strategy} trade (high-risk fail-safe)`
+        );
+        logger.error('A-LAMS VaR unreachable — BLOCKING high-risk trade', {
+          strategy,
+          riskTier,
+          error: errMsg,
+        });
+      } else {
+        // Non-blocking for low/medium — warn and continue
+        logger.warn('A-LAMS VaR check unavailable — proceeding (non-blocking)', {
+          strategy,
+          riskTier,
+          error: errMsg,
+        });
+      }
+    }
+
     const canTrade = blockReasons.length === 0;
 
     if (!canTrade) {
@@ -776,6 +1019,7 @@ export class GlobalRiskManager {
       correlationRisk,
       oracleStatuses,
       gasBudget,
+      alamsVar,
       canTrade,
       blockReasons,
     };

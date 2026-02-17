@@ -5,6 +5,7 @@
  */
 
 import type { Keypair, PublicKey } from '@solana/web3.js';
+import { config as prodConfig } from '../../config/production.js';
 
 // Supported DEXs
 export type SupportedDex = 'orca' | 'raydium' | 'meteora';
@@ -135,16 +136,20 @@ export interface IDexExecutor {
 export interface ExecutorConfig {
   rpcUrl: string;
   defaultSlippageBps: number;
+  depositSlippageBps?: number;   // Override for deposit (from SLIPPAGE_LP_DEPOSIT_BPS)
+  withdrawSlippageBps?: number;  // Override for withdraw (from SLIPPAGE_LP_WITHDRAW_BPS)
   maxPriceImpactPct: number;
   confirmationTimeout: number;  // ms
   priorityFeeLamports?: number;
   dryRun?: boolean;  // If true, simulate trades without executing
 }
 
-// Default configuration
+// Default configuration — reads from centralized config (production.ts)
 export const DEFAULT_EXECUTOR_CONFIG: ExecutorConfig = {
-  rpcUrl: 'https://api.mainnet-beta.solana.com',
-  defaultSlippageBps: 50,       // 0.5%
+  rpcUrl: prodConfig.solanaRpcUrl,
+  defaultSlippageBps: prodConfig.slippage.lpDeposit,
+  depositSlippageBps: prodConfig.slippage.lpDeposit,    // 100 BPS from env
+  withdrawSlippageBps: prodConfig.slippage.lpWithdraw,  // 50 BPS from env
   maxPriceImpactPct: 1.0,       // Max 1% price impact
   confirmationTimeout: 60000,   // 60 seconds
   priorityFeeLamports: 100000,  // 0.0001 SOL priority fee
@@ -153,11 +158,16 @@ export const DEFAULT_EXECUTOR_CONFIG: ExecutorConfig = {
 // Token mints (common tokens)
 export const TOKEN_MINTS = {
   SOL: 'So11111111111111111111111111111111111111112',
-  BTC: '9n4nbM75f5Ui33ZbPYXn59EwSgE8CGsHtAeTH5YFeJ9E', // Wrapped BTC
+  BTC: '9n4nbM75f5Ui33ZbPYXn59EwSgE8CGsHtAeTH5YFeJ9E',
   USDC: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
   USDT: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',
   BONK: 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263',
   JUP: 'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN',
   WIF: 'EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm',
+  MSOL: 'mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So',
+  STSOL: '7dHbWXmci3dT8UFYWYZweBLXgycu7Y3iL6trKn1Y7ARj',
+  JITOSOL: 'J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn',
+  RAY: '4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R',
+  ORCA: 'orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE',
 } as const;
 

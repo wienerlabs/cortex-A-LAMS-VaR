@@ -22,6 +22,8 @@ import type {
   SolanaTransaction,
   TransactionInfo,
   TokenValidation,
+  SimulationResult,
+  JupiterQuoteResponse,
 } from './types.js';
 import { SOLANA_ADDRESS_REGEX, KNOWN_STABLE_MINTS, KNOWN_MAJOR_MINTS } from './types.js';
 
@@ -191,6 +193,23 @@ class GuardianValidator {
     const securityResult = await this.securityCheck(params);
     const sanityResult = this.sanityCheck(params);
 
+    // Run transaction simulation (non-blocking - failures don't block trades)
+    let simulationResult: SimulationResult | undefined;
+    try {
+      simulationResult = await this.simulateTransaction(params);
+
+      // If simulation reveals critical issues, treat as sanity failure
+      if (simulationResult.success && simulationResult.warnings.length > 0) {
+        for (const warning of simulationResult.warnings) {
+          if (warning.includes('exceeds limit') || warning.includes('exceeds requested')) {
+            sanityResult.warnings.push(`[Simulation] ${warning}`);
+          }
+        }
+      }
+    } catch (simError: any) {
+      guardianLogger.warn('Simulation skipped due to error', { error: simError.message });
+    }
+
     // Determine if transaction should be blocked
     const shouldBlock = this.shouldBlock(validationResult, securityResult, sanityResult);
     const blockReason = this.getBlockReason(validationResult, securityResult, sanityResult);
@@ -200,6 +219,7 @@ class GuardianValidator {
       validationResult,
       securityResult,
       sanityResult,
+      simulationResult,
       timestamp,
       executionAllowed: !shouldBlock,
       blockReason: shouldBlock ? blockReason : undefined,
@@ -425,6 +445,145 @@ class GuardianValidator {
       timestamp,
       executionAllowed: true,
     };
+  }
+
+  // ============= TRANSACTION SIMULATION =============
+
+  /**
+   * Simulate a swap via Jupiter Quote API to verify:
+   * - Actual slippage vs requested
+   * - Price impact
+   * - Route availability
+   * - Estimated output amount
+   *
+   * Does NOT execute the trade. This is a read-only dry-run.
+   */
+  async simulateTransaction(params: GuardianTradeParams): Promise<SimulationResult> {
+    const startTime = Date.now();
+    const warnings: string[] = [];
+
+    // Skip simulation for perps (different execution path)
+    if (params.strategy === 'perps') {
+      return {
+        success: true,
+        warnings: ['Simulation skipped for perps strategy'],
+        simulationTimeMs: Date.now() - startTime,
+      };
+    }
+
+    const jupiterApiBase = process.env.JUPITER_API_URL || 'https://quote-api.jup.ag/v6';
+
+    try {
+      // Step 1: Get Jupiter quote (dry-run swap simulation)
+      const quoteUrl = new URL(`${jupiterApiBase}/quote`);
+      quoteUrl.searchParams.set('inputMint', params.inputMint);
+      quoteUrl.searchParams.set('outputMint', params.outputMint);
+      quoteUrl.searchParams.set('amount', String(Math.round(params.amountIn)));
+      quoteUrl.searchParams.set('slippageBps', String(params.slippageBps));
+      quoteUrl.searchParams.set('onlyDirectRoutes', 'false');
+      quoteUrl.searchParams.set('maxAccounts', '64');
+
+      const quoteResponse = await fetch(quoteUrl.toString(), {
+        method: 'GET',
+        headers: { 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(10000), // 10s timeout
+      });
+
+      if (!quoteResponse.ok) {
+        const errorText = await quoteResponse.text();
+        return {
+          success: false,
+          warnings,
+          error: `Jupiter quote failed (${quoteResponse.status}): ${errorText}`,
+          simulationTimeMs: Date.now() - startTime,
+        };
+      }
+
+      const quote = await quoteResponse.json() as JupiterQuoteResponse;
+
+      const outAmount = Number(quote.outAmount);
+      const priceImpactPct = parseFloat(quote.priceImpactPct);
+
+      // Step 2: Calculate estimated slippage from quote vs expected
+      let estimatedSlippagePct: number | undefined;
+      if (params.expectedAmountOut && params.expectedAmountOut > 0) {
+        estimatedSlippagePct = ((params.expectedAmountOut - outAmount) / params.expectedAmountOut) * 100;
+      }
+
+      // Step 3: Build route description
+      const routeLabels = quote.routePlan.map(r => r.swapInfo.label);
+      const routeDescription = routeLabels.join(' -> ');
+
+      // Step 4: Validate simulation results
+      const config = this.getEffectiveConfig(params.strategy);
+
+      if (priceImpactPct > config.maxPriceImpactPercent) {
+        warnings.push(
+          `Simulated price impact ${priceImpactPct.toFixed(2)}% exceeds limit ${config.maxPriceImpactPercent}%`
+        );
+      }
+
+      if (estimatedSlippagePct !== undefined && estimatedSlippagePct > (params.slippageBps / 100)) {
+        warnings.push(
+          `Estimated slippage ${estimatedSlippagePct.toFixed(2)}% exceeds requested ${(params.slippageBps / 100).toFixed(2)}%`
+        );
+      }
+
+      // MEV risk warning: if route goes through many hops, sandwich risk is higher
+      if (quote.routePlan.length > 3) {
+        warnings.push(
+          `Multi-hop route (${quote.routePlan.length} hops) - elevated MEV/sandwich risk`
+        );
+      }
+
+      // Step 5: On-chain simulation (if connection available)
+      let estimatedGasLamports: number | undefined;
+      if (this.connection) {
+        try {
+          const recentBlockhash = await this.connection.getLatestBlockhash('confirmed');
+          // Gas estimation via getFeeForMessage could go here
+          // For now, use priority fee as proxy
+          estimatedGasLamports = params.priorityFeeLamports || 5000;
+        } catch (gasError: any) {
+          warnings.push(`Gas estimation failed: ${gasError.message}`);
+        }
+      }
+
+      guardianLogger.info('Transaction simulation completed', {
+        inputMint: params.inputMint,
+        outputMint: params.outputMint,
+        amountIn: params.amountIn,
+        estimatedOut: outAmount,
+        priceImpactPct,
+        route: routeDescription,
+        warnings: warnings.length,
+        timeMs: Date.now() - startTime,
+      });
+
+      return {
+        success: true,
+        estimatedOutputAmount: outAmount,
+        estimatedSlippagePct,
+        estimatedPriceImpactPct: priceImpactPct,
+        estimatedGasLamports,
+        routeDescription,
+        warnings,
+        simulationTimeMs: Date.now() - startTime,
+      };
+    } catch (error: any) {
+      guardianLogger.error('Transaction simulation failed', {
+        error: error.message,
+        inputMint: params.inputMint,
+        outputMint: params.outputMint,
+      });
+
+      return {
+        success: false,
+        warnings,
+        error: error.message,
+        simulationTimeMs: Date.now() - startTime,
+      };
+    }
   }
 
   // ============= HELPER METHODS =============
