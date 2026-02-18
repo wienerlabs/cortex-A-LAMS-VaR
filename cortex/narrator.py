@@ -380,6 +380,7 @@ You have access to:
 - Guardian composite risk assessment (EVT, SVJ, Hawkes, MSM regime, news, A-LAMS VaR)
 - Adversarial debate transcripts (Trader vs Risk Manager vs Devil's Advocate → Portfolio Manager)
 - News sentiment signals
+- DX Research intelligence: stigmergy consensus (agent coordination), Ising cascade risk (herd detection), human overrides
 
 Your output should:
 1. Start with a clear APPROVE/REJECT recommendation with confidence level
@@ -416,7 +417,8 @@ Your briefing should cover:
 2. News sentiment summary and key headlines
 3. Model agreement/disagreement across components
 4. Any active circuit breakers or veto triggers
-5. Recommended operator actions
+5. DX intelligence: agent coordination signals, cascade/herd risks, vault state, human overrides
+6. Recommended operator actions
 
 Write in a professional but direct style. Numbers matter — include specific scores,
 probabilities, and thresholds. Target length: 200-400 words."""
@@ -430,6 +432,7 @@ You have access to live system context including:
 - News sentiment signals
 - Debate transcripts and decision history
 - Circuit breaker states
+- DX intelligence: stigmergy consensus, Ising cascade risk, vault deltas, human overrides
 
 Answer precisely based on the provided context. If you don't have enough data
 to answer, say so clearly. Never fabricate numbers. Reference specific model
@@ -475,6 +478,11 @@ async def explain_decision(
     except Exception:
         pass
 
+    # DX-Research context
+    stigmergy_ctx = _collect_stigmergy_context(token)
+    cascade_ctx = _collect_cascade_context(token)
+    override_ctx = _collect_override_context()
+
     user_prompt = f"""Explain this trade decision:
 
 TOKEN: {token}
@@ -491,7 +499,12 @@ SIZE: ${trade_size_usd:,.2f}
 {news_ctx}
 
 === REGIME STATE ===
-{regime_ctx}"""
+{regime_ctx}
+
+=== DX INTELLIGENCE ===
+{stigmergy_ctx}
+{cascade_ctx}
+{override_ctx}"""
 
     try:
         narrative = await _llm_call(EXPLAIN_SYSTEM, user_prompt)
@@ -669,6 +682,13 @@ async def market_briefing() -> dict[str, Any]:
     except Exception:
         pass
 
+    # DX-Research context (all 5 modules)
+    stigmergy_ctx = _collect_stigmergy_context()
+    cascade_ctx = _collect_cascade_context()
+    memory_ctx = _collect_memory_context()
+    vault_ctx = _collect_vault_context()
+    override_ctx = _collect_override_context()
+
     user_prompt = f"""Generate a market briefing from the following risk engine state:
 
 === REGIME STATE ===
@@ -684,7 +704,14 @@ async def market_briefing() -> dict[str, Any]:
 {cb_ctx}
 
 === KELLY CRITERION ===
-{kelly_ctx}"""
+{kelly_ctx}
+
+=== DX INTELLIGENCE ===
+{stigmergy_ctx}
+{cascade_ctx}
+{memory_ctx}
+{vault_ctx}
+{override_ctx}"""
 
     try:
         briefing = await _llm_call(BRIEFING_SYSTEM, user_prompt)
@@ -744,6 +771,10 @@ async def answer_question(
     except Exception:
         pass
 
+    # DX-Research context
+    stigmergy_ctx = _collect_stigmergy_context()
+    override_ctx = _collect_override_context()
+
     extra = ""
     if context_overrides:
         extra = f"\n=== ADDITIONAL CONTEXT ===\n{context_overrides}"
@@ -760,6 +791,10 @@ NEWS:
 
 KELLY:
 {kelly_ctx}
+
+DX INTELLIGENCE:
+{stigmergy_ctx}
+{override_ctx}
 {extra}"""
 
     try:
