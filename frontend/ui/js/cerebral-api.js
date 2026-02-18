@@ -133,6 +133,16 @@ const CerebralAPI = (function() {
             '&threshold=' + (threshold || 0.3));
     }
 
+    // --- Agent Status ---
+    async function fetchAgentStatus() {
+        return _fetch('/agents/status');
+    }
+
+    // --- Portfolio Drawdown ---
+    async function fetchDrawdown() {
+        return _fetch('/portfolio/drawdown');
+    }
+
     return {
         setToken, getToken,
         checkHealth, isAvailable,
@@ -141,5 +151,6 @@ const CerebralAPI = (function() {
         fetchCircuitBreakers, fetchGuardianAssess,
         fetchRegimeHistory, fetchRegimeDurations,
         fetchRegimeStatistics, fetchTransitionAlert,
+        fetchAgentStatus, fetchDrawdown,
     };
 })();

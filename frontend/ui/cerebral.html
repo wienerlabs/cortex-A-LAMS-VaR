@@ -332,7 +332,7 @@
         <div class="rg-formula" id="fSankey"></div>
 
         <!-- 2. Adversarial Debate Theater -->
-        <div class="section-header"><span>Adversarial Debate Theater</span><span class="text-dim" id="dtTimestamp">--</span></div>
+        <div class="section-header"><span>Adversarial Debate Theater <span class="text-dim" style="font-size:0.6rem;margin-left:0.5rem" id="dtLiveStatus">Mock</span></span><span class="text-dim" id="dtTimestamp">--</span></div>
         <div id="dtContainer"></div>
         <div id="dtSummary"></div>
         <div id="dtArchive"></div>
@@ -364,7 +364,7 @@
 
             <!-- 4. ML Signal Dashboard (right) -->
             <div class="cb-cell">
-                <div class="section-header"><span>ML Signal Dashboard</span><span class="text-dim">Live</span></div>
+                <div class="section-header"><span>ML Signal Dashboard</span><span class="text-dim" id="mlSignalStatus">Mock</span></div>
                 <div class="ml-grid" id="mlGrid"></div>
                 <div class="section-header" style="border-top:1px solid var(--border)"><span>Confidence Thresholds</span></div>
                 <div style="padding:0.75rem 1rem; font-size:0.65rem; line-height:2; color:var(--dim)">
@@ -378,7 +378,7 @@
 
             <!-- 5. Agent Cognitive Load (left) -->
             <div class="cb-cell">
-                <div class="section-header"><span>Agent Cognitive Load</span><span class="text-dim">10 Agents</span></div>
+                <div class="section-header"><span>Agent Cognitive Load</span><span class="text-dim" id="agLoadStatus">Mock</span></div>
                 <div class="ag-grid" id="agGrid"></div>
                 <div class="rg-formula" id="fLoad"></div>
             </div>
@@ -803,24 +803,32 @@
         }
     }
 
+    var _debateLiveActive = false;
+
     // Initial render with mock, then try live
     pushToArchive();
     renderDebate();
 
-    // Try live debates, fall back to mock rotation
+    // Try live debates first, fall back to mock rotation
     (async function() {
         var live = await fetchLiveDebate();
+        _debateLiveActive = live;
+        var statusEl = document.getElementById('dtLiveStatus');
+        if (statusEl) statusEl.textContent = live ? 'LIVE' : 'Mock';
         if (!live) console.log('[Cerebral] No live debates — using mock scenarios');
     })();
 
     setInterval(async function() {
         var live = await fetchLiveDebate();
+        _debateLiveActive = live;
+        var statusEl = document.getElementById('dtLiveStatus');
+        if (statusEl) statusEl.textContent = live ? 'LIVE' : 'Mock';
         if (!live) {
             currentDebateIdx++;
             pushToArchive();
             renderDebate();
         }
-    }, 15000);
+    }, 10000);
     </script>
 
     <script>
@@ -993,12 +1001,14 @@
     // === 3b. REGIME ACCURACY CHART ===
     var rgAccHistory = [];
     (function seedAccuracy() {
+        // Deterministic seed using sine-based pseudo-variation
         for (var i = 0; i < 20; i++) {
+            var t = i / 20;
             rgAccHistory.push({
                 cycle: i + 1,
-                accuracy: 55 + Math.random() * 35,
-                falsePos: 2 + Math.random() * 12,
-                stability: 40 + Math.random() * 50
+                accuracy: 65 + Math.sin(i * 0.7) * 15 + i * 0.8,
+                falsePos: 7 + Math.sin(i * 1.1 + 2) * 4,
+                stability: 55 + Math.sin(i * 0.5 + 1) * 18 + i * 0.5
             });
         }
     })();
@@ -1102,14 +1112,28 @@
             observedTransitions[from] = observedTransitions[from].map(function(v) { return v / rowSum; });
             prevRegimeForHeatmap = curr;
         }
-        // Add accuracy data point
+        // Add accuracy data point — use live regime statistics when available
         if (rgAccHistory.length >= 30) rgAccHistory.shift();
-        rgAccHistory.push({
-            cycle: (rgAccHistory[rgAccHistory.length - 1]?.cycle || 0) + 1,
-            accuracy: Math.max(40, Math.min(98, rgAccHistory[rgAccHistory.length - 1].accuracy + (Math.random() - 0.45) * 5)),
-            falsePos: Math.max(0, Math.min(25, rgAccHistory[rgAccHistory.length - 1].falsePos + (Math.random() - 0.5) * 3)),
-            stability: Math.max(30, Math.min(95, rgAccHistory[rgAccHistory.length - 1].stability + (Math.random() - 0.45) * 4))
-        });
+        var liveStats = window._liveRegimeStats;
+        var prev = rgAccHistory[rgAccHistory.length - 1] || { cycle: 0, accuracy: 75, falsePos: 8, stability: 70 };
+        if (liveStats && liveStats.accuracy !== undefined) {
+            rgAccHistory.push({
+                cycle: prev.cycle + 1,
+                accuracy: Math.max(40, Math.min(98, liveStats.accuracy * 100 || prev.accuracy)),
+                falsePos: Math.max(0, Math.min(25, liveStats.false_positive_rate * 100 || prev.falsePos)),
+                stability: Math.max(30, Math.min(95, liveStats.stability * 100 || prev.stability)),
+            });
+        } else {
+            // Fallback: deterministic drift based on regime confidence
+            var conf = currentRegime.confidence || 0.5;
+            var drift = (conf - 0.5) * 2; // -1 to 1
+            rgAccHistory.push({
+                cycle: prev.cycle + 1,
+                accuracy: Math.max(40, Math.min(98, prev.accuracy + drift * 2)),
+                falsePos: Math.max(0, Math.min(25, prev.falsePos - drift * 1.5)),
+                stability: Math.max(30, Math.min(95, prev.stability + drift * 1.8)),
+            });
+        }
         renderAccuracyChart();
         renderTransitionHeatmap();
     }
@@ -1133,6 +1157,8 @@
         const grid = document.getElementById('mlGrid');
         const regime = currentRegime.state;
         const signals = generateMLSignals(regime);
+        var mlStatus = document.getElementById('mlSignalStatus');
+        if (mlStatus) mlStatus.textContent = (window._liveAgentData && window._liveAgentData.agents) ? 'LIVE' : 'Mock';
         grid.innerHTML = signals.map(s => {
             const color = s.value >= 70 ? 'var(--green)' : s.value >= 40 ? 'var(--dim)' : 'var(--red)';
             return '<div class="ml-signal">' +
@@ -1144,6 +1170,22 @@
     }
 
     function generateMLSignals(regime) {
+        // Use live agent status data when available
+        var liveAgents = window._liveAgentData;
+        if (liveAgents && liveAgents.agents) {
+            var a = liveAgents.agents;
+            var mom = a.momentum || {};
+            var mr = a.meanrev || {};
+            var risk = a.risk || {};
+            var sent = a.sentiment || {};
+            return [
+                { name: 'Momentum', value: parseInt(mom.confidence) || 50, direction: mom.signal || 'Neutral' },
+                { name: 'Mean Reversion', value: parseInt(mr.confidence) || 50, direction: mr.signal || 'Neutral' },
+                { name: 'Volatility', value: parseInt(risk.confidence) || 50, direction: risk.signal || 'Monitor' },
+                { name: 'Sentiment', value: parseInt(sent.confidence) || 50, direction: sent.signal || 'Neutral' },
+            ];
+        }
+        // Fallback: regime-based deterministic values
         const base = {
             0: [55, 65, 30, 50],
             1: [82, 35, 45, 72],
@@ -1162,7 +1204,7 @@
         const d = dirs[regime] || dirs[0];
         return ML_SIGNALS.map((s, i) => ({
             name: s.name,
-            value: Math.max(0, Math.min(100, b[i] + Math.round((Math.random() - 0.5) * 8))),
+            value: b[i],
             direction: d[i],
         }));
     }
@@ -1184,10 +1226,42 @@
         { name: 'Guardian', fullName: 'Guardian Validator' },
     ];
 
+    // Map live agent status to load percentage
+    function _agentLoadFromLive(agentKey) {
+        var liveAgents = window._liveAgentData;
+        if (!liveAgents || !liveAgents.agents) return null;
+        var a = liveAgents.agents[agentKey];
+        if (!a) return null;
+        var conf = parseInt(a.confidence) || 50;
+        // ACTIVE agents with high confidence = high load, PAUSED = low
+        if (a.status === 'PAUSED') return 15;
+        if (a.status === 'WARNING') return 70 + Math.round(conf * 0.2);
+        return Math.min(95, 40 + Math.round(conf * 0.5));
+    }
+
+    // Map AGENTS array indices to backend agent keys
+    var AGENT_KEY_MAP = {
+        'Technical': 'momentum',
+        'On-Chain': 'momentum',
+        'Sentiment': 'sentiment',
+        'Macro': 'risk',
+        'Protocol': 'arbitrage',
+        'Risk Res.': 'risk',
+        'Trader': 'momentum',
+        'Risk Mgr': 'risk',
+        'Portfolio': 'risk',
+        'Guardian': 'risk',
+    };
+
     function renderAgentLoad() {
+        var isLive = !!(window._liveAgentData && window._liveAgentData.agents);
+        var statusEl = document.getElementById('agLoadStatus');
+        if (statusEl) statusEl.textContent = isLive ? 'LIVE' : 'Mock';
+
         const grid = document.getElementById('agGrid');
         grid.innerHTML = AGENTS.map(a => {
-            const load = 30 + Math.round(Math.random() * 60);
+            var liveLoad = _agentLoadFromLive(AGENT_KEY_MAP[a.name]);
+            const load = liveLoad !== null ? liveLoad : (30 + Math.round(Math.random() * 60));
             const color = load >= 80 ? 'var(--red)' : load >= 50 ? 'var(--dim)' : 'var(--green)';
             const status = load >= 80 ? 'HIGH LOAD' : load >= 50 ? 'PROCESSING' : 'IDLE';
             const pct = load / 100;
@@ -1311,8 +1385,37 @@
             renderAlertLog();
         }
 
+        var _cbLiveActive = false;
+
+        function applyLiveDrawdown() {
+            var dd = window._liveDrawdownData;
+            if (!dd) return false;
+            var prevDaily = dailyDD, prevWeekly = weeklyDD;
+            if (dd.daily_drawdown !== undefined) dailyDD = Math.abs(dd.daily_drawdown * 100);
+            if (dd.weekly_drawdown !== undefined) weeklyDD = Math.abs(dd.weekly_drawdown * 100);
+            if (dd.oracle_staleness !== undefined) oracleStale = dd.oracle_staleness;
+
+            // Generate alerts on significant changes
+            var dailyLim = 5;
+            if (dailyDD >= dailyLim && prevDaily < dailyLim) {
+                addAlert('Drawdown', 'critical', 'Daily DD ' + dailyDD.toFixed(1) + '% ≥ ' + dailyLim + '% — PAUSED', 'Pause All');
+            } else if (dailyDD >= dailyLim * 0.6 && prevDaily < dailyLim * 0.6) {
+                addAlert('Drawdown', 'warning', 'Daily DD ' + dailyDD.toFixed(1) + '% approaching limit', 'Monitor');
+            }
+            return true;
+        }
+
         function simulateCycle() {
-            // Drawdown drift
+            // Prefer live data; fall back to random drift
+            if (applyLiveDrawdown()) {
+                _cbLiveActive = true;
+                applyLiveCBData();
+                renderBreakers();
+                return;
+            }
+            _cbLiveActive = false;
+
+            // Fallback: random drift
             dailyDD = Math.max(0, Math.min(8, dailyDD + (Math.random() - 0.45) * 0.3));
             weeklyDD = Math.max(0, Math.min(15, weeklyDD + (Math.random() - 0.45) * 0.2));
             oracleStale = Math.max(1, Math.min(45, oracleStale + Math.floor((Math.random() - 0.4) * 5)));
@@ -1325,7 +1428,7 @@
                 addAlert('Drawdown', 'warning', 'Daily DD ' + dailyDD.toFixed(1) + '% approaching limit', 'Monitor');
             }
 
-            // Breaker simulation
+            // Breaker simulation (mock only)
             if (Math.random() < 0.15) {
                 var idx = Math.floor(Math.random() * 3);
                 BREAKERS[idx].current = Math.min(BREAKERS[idx].threshold, BREAKERS[idx].current + 1);
@@ -1336,7 +1439,6 @@
                     showCircuitBreakerAlert(BREAKERS[idx].name, BREAKERS[idx].triggers[0], 'TRIPPED');
                 }
             }
-            // Auto-recovery
             if (Math.random() < 0.1) {
                 var ri = Math.floor(Math.random() * 3);
                 if (BREAKERS[ri].current > 0) {
@@ -1378,14 +1480,16 @@
                 varVal = Math.abs(live.var95.var_value);
                 sigma = live.var95.sigma_forecast ? Math.abs(live.var95.sigma_forecast) / 100 : 0.031;
                 distribution = live.var95.distribution || 'normal';
-                delta = 0.127 + Math.random() * 0.062;
-                liqContrib = 23 + Math.random() * 24;
+                // Derive delta from live sigma (higher vol = higher asymmetry)
+                delta = Math.min(0.189, 0.127 + sigma * 0.8);
+                // Derive liquidity impact from regime index (higher regime = more liq stress)
+                liqContrib = Math.min(47, 23 + ri * 6);
                 document.getElementById('varLastUpdate').textContent = 'Live \u00b7 ' + distribution + ' \u00b7 ' + CerebralAPI.getToken();
             } else {
                 const sigmas = [0.012, 0.018, 0.031, 0.052, 0.089];
                 sigma = sigmas[ri];
-                delta = 0.127 + Math.random() * 0.062;
-                liqContrib = 23 + Math.random() * 24;
+                delta = Math.min(0.189, 0.127 + sigma * 0.8);
+                liqContrib = 23 + ri * 6;
                 varVal = (sigma * 1.645 + (liqContrib / 100) * sigma * 0.5) * 100;
                 document.getElementById('varLastUpdate').textContent = 'Mock \u00b7 Risk Researcher';
             }
@@ -1422,9 +1526,9 @@
                 varMetricsEl.appendChild(card);
             });
 
-            // Asymmetry gauge
-            const deltaBear = 0.140 + Math.random() * 0.049;
-            const deltaBull = 0.085 + Math.random() * 0.030;
+            // Asymmetry gauge — derive from delta and regime
+            const deltaBear = Math.min(0.189, delta * 1.1 + ri * 0.005);
+            const deltaBull = Math.max(0.085, delta * 0.7 - ri * 0.003);
             const gaugeData = [
                 { label: 'Bear δ (negative returns)', value: deltaBear, max: 0.25, color: 'var(--red)' },
                 { label: 'Bull δ (positive returns)', value: deltaBull, max: 0.25, color: 'var(--green)' },
@@ -3040,20 +3144,69 @@
         }
     }
 
+    async function fetchLiveAgentStatus() {
+        if (!CerebralAPI.isAvailable()) return false;
+        try {
+            var data = await CerebralAPI.fetchAgentStatus();
+            if (!data || !data.agents) return false;
+            window._liveAgentData = data;
+            var statusEl = document.getElementById('mlSignalStatus');
+            if (statusEl) statusEl.textContent = 'LIVE';
+            var agStatusEl = document.getElementById('agLoadStatus');
+            if (agStatusEl) agStatusEl.textContent = 'LIVE';
+            console.log('[Cerebral] Live agent status loaded');
+            return true;
+        } catch (e) {
+            console.warn('[Cerebral] Live agent status fetch failed:', e.message);
+            return false;
+        }
+    }
+
+    async function fetchLiveDrawdown() {
+        if (!CerebralAPI.isAvailable()) return false;
+        try {
+            var data = await CerebralAPI.fetchDrawdown();
+            if (!data) return false;
+            window._liveDrawdownData = data;
+            console.log('[Cerebral] Live drawdown loaded');
+            return true;
+        } catch (e) {
+            console.warn('[Cerebral] Live drawdown fetch failed:', e.message);
+            return false;
+        }
+    }
+
+    async function fetchLiveRegimeStats() {
+        if (!CerebralAPI.isAvailable()) return false;
+        try {
+            var data = await CerebralAPI.fetchRegimeStatistics();
+            if (!data) return false;
+            window._liveRegimeStats = data;
+            console.log('[Cerebral] Live regime statistics loaded');
+            return true;
+        } catch (e) {
+            console.warn('[Cerebral] Live regime stats fetch failed:', e.message);
+            return false;
+        }
+    }
+
     // Master refresh: try live API, then update displays
     async function cerebralRefresh() {
         var liveRegime = await fetchLiveRegime();
         if (!liveRegime) {
-            // Fallback: CoinGecko HMM regime detection
             await detectRegime();
         }
         updateRegimeDisplay();
         renderMLSignals();
 
-        // VaR — try live data
-        await fetchLiveVaR();
-        // Circuit breakers — try live data
-        await fetchLiveCircuitBreakers();
+        // Parallel fetch: VaR, circuit breakers, agents, drawdown, regime stats
+        await Promise.all([
+            fetchLiveVaR(),
+            fetchLiveCircuitBreakers(),
+            fetchLiveAgentStatus(),
+            fetchLiveDrawdown(),
+            fetchLiveRegimeStats(),
+        ]);
     }
 
     // Initialize
