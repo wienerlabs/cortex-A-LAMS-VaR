@@ -825,6 +825,7 @@ def run_debate(
         "original_approved": original_approved,
         "decision_changed": (final["decision"] == "approve") != original_approved,
         "strategy": strategy,
+        "info_asymmetry_active": DEBATE_INFO_ASYMMETRY_ENABLED,
         "evidence_summary": {
             "total": total_evidence,
             "bullish": len(evidence["bullish"]),
