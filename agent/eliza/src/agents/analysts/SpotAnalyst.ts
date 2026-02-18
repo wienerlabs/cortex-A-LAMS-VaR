@@ -14,6 +14,8 @@ import { SpotMLModel } from '../../services/spot/ml/spotMLModel.js';
 import { SpotFeatureExtractor, type TokenMarketData } from '../../services/spot/ml/featureExtractor.js';
 import { RiskManager } from '../../services/riskManager.js';
 import { logger } from '../../services/logger.js';
+import { checkTokenSafety, type TokenSafetyResult } from '../../services/solanaAgentKit/tokenSafety.js';
+import type { SolanaAgentKitService } from '../../services/solanaAgentKit/index.js';
 
 /**
  * Input for SpotAnalyst
@@ -43,6 +45,7 @@ export interface SpotOpportunityResult {
     mlProbability: number;
     ruleScore: number;
     features: any;
+    tokenSafety?: TokenSafetyResult;
   };
   // Trading information
   trading: {
@@ -89,10 +92,12 @@ export class SpotAnalyst extends BaseAnalyst<SpotAnalysisInput, SpotOpportunityR
   private featureExtractor: SpotFeatureExtractor;
   private riskManager: RiskManager;
   private modelInitialized: boolean = false;
+  private kitService: SolanaAgentKitService | null;
 
-  constructor(config: Partial<SpotAnalystConfig> = {}) {
+  constructor(config: Partial<SpotAnalystConfig> = {}, kitService?: SolanaAgentKitService | null) {
     super({ ...DEFAULT_SPOT_CONFIG, ...config });
     this.spotConfig = { ...DEFAULT_SPOT_CONFIG, ...config };
+    this.kitService = kitService ?? null;
 
     this.mlModel = new SpotMLModel();
     this.featureExtractor = new SpotFeatureExtractor();
@@ -103,7 +108,7 @@ export class SpotAnalyst extends BaseAnalyst<SpotAnalysisInput, SpotOpportunityR
       dataQualityScore: 0.75,
     });
 
-    logger.info('[SpotAnalyst] Initialized', { config: this.spotConfig });
+    logger.info('[SpotAnalyst] Initialized', { config: this.spotConfig, kitAvailable: !!kitService });
   }
 
   getName(): string {
@@ -176,6 +181,9 @@ export class SpotAnalyst extends BaseAnalyst<SpotAnalysisInput, SpotOpportunityR
       logger.info(`    Rule Score:      ${Number(result.raw.ruleScore).toFixed(0)}/160 (${(Number(result.raw.ruleScore) / 160 * 100).toFixed(1)}%)`);
       logger.info(`    Final Confidence: ${(Number(result.confidence) * 100).toFixed(1)}%`);
       logger.info(`    Threshold:       ${(this.spotConfig.minConfidenceThreshold * 100).toFixed(0)}%`);
+      if (result.raw.tokenSafety) {
+        logger.info(`    Token Safety:    ${result.raw.tokenSafety.riskLevel} (${result.raw.tokenSafety.riskScore}/100 via ${result.raw.tokenSafety.source})`);
+      }
       if (result.rejectReason) {
         logger.info(`    Reject Reason:   ${result.rejectReason}`);
       }
@@ -212,8 +220,25 @@ export class SpotAnalyst extends BaseAnalyst<SpotAnalysisInput, SpotOpportunityR
     const ruleConfidence = ruleScore / 160; // Max score is 160
 
     // 4. Combine ML + Rules (70% ML, 30% rules)
-    const finalConfidence = (Number(mlPrediction.confidence) * Number(this.spotConfig.mlWeight)) +
-                           (Number(ruleConfidence) * Number(this.spotConfig.ruleWeight));
+    let finalConfidence = (Number(mlPrediction.confidence) * Number(this.spotConfig.mlWeight)) +
+                          (Number(ruleConfidence) * Number(this.spotConfig.ruleWeight));
+
+    // 4b. Token safety check via Kit rugCheck / DexScreener fallback
+    const safetyResult = await checkTokenSafety(token.address, this.kitService);
+
+    if (!safetyResult.safe) {
+      // Penalize confidence for unsafe tokens (up to -15%)
+      const safetyPenalty = Math.min(0.15, safetyResult.riskScore / 500);
+      finalConfidence = Math.max(0, finalConfidence - safetyPenalty);
+    }
+
+    // Surface safety warnings/flags
+    for (const flag of safetyResult.flags) {
+      warnings.push(`[Safety] ${flag}`);
+    }
+    for (const warn of safetyResult.warnings) {
+      warnings.push(`[Safety] ${warn}`);
+    }
 
     // 5. Calculate expected return (based on historical TP1 target)
     const expectedReturn = 0.12; // 12% target (TP1)
@@ -237,6 +262,12 @@ export class SpotAnalyst extends BaseAnalyst<SpotAnalysisInput, SpotOpportunityR
     if (mlPrediction.confidence < 0.4) riskScore += 2;
     if (mlPrediction.confidence > 0.7) riskScore -= 1;
 
+    // Adjust for token safety
+    if (safetyResult.riskLevel === 'CRITICAL') riskScore += 3;
+    else if (safetyResult.riskLevel === 'HIGH') riskScore += 2;
+    else if (safetyResult.riskLevel === 'MEDIUM') riskScore += 1;
+    else if (safetyResult.riskLevel === 'LOW') riskScore -= 1;
+
     riskScore = Math.max(1, Math.min(10, riskScore));
 
     // 7. Risk-adjusted return
@@ -252,6 +283,11 @@ export class SpotAnalyst extends BaseAnalyst<SpotAnalysisInput, SpotOpportunityR
     // Check liquidity
     if (token.liquidity < this.spotConfig.minLiquidity) {
       rejectReason = `Low liquidity: $${(token.liquidity / 1000).toFixed(0)}K < $${(this.spotConfig.minLiquidity / 1000).toFixed(0)}K`;
+    }
+
+    // Check token safety — reject CRITICAL risk tokens
+    if (!rejectReason && safetyResult.riskLevel === 'CRITICAL') {
+      rejectReason = `Token safety CRITICAL (score: ${safetyResult.riskScore}/100, source: ${safetyResult.source})`;
     }
 
     // Check risk manager
@@ -325,6 +361,7 @@ export class SpotAnalyst extends BaseAnalyst<SpotAnalysisInput, SpotOpportunityR
         mlProbability: mlPrediction.probability,
         ruleScore,
         features,
+        tokenSafety: safetyResult,
       },
       trading: {
         direction: 'LONG',
@@ -390,6 +427,13 @@ export class SpotAnalyst extends BaseAnalyst<SpotAnalysisInput, SpotOpportunityR
     logger.info(`│    ML Confidence:   ${(Number(mlPrediction.confidence) * 100).toFixed(1)}%`.padEnd(61) + '│');
     logger.info(`│    Rule Score:      ${Number(ruleScore).toFixed(0)}/160 (${(Number(ruleConfidence) * 100).toFixed(1)}%)`.padEnd(61) + '│');
     logger.info(`│    Combined Score:  ${(Number(finalConfidence) * 100).toFixed(1)}% (${(Number(this.spotConfig.mlWeight) * 100).toFixed(0)}% ML + ${(Number(this.spotConfig.ruleWeight) * 100).toFixed(0)}% Rules)`.padEnd(61) + '│');
+    logger.info(`├──────────────────────────────────────────────────────────┤`);
+    logger.info(`│  Token Safety (${safetyResult.source}):`.padEnd(61) + '│');
+    logger.info(`│    Risk Score:      ${safetyResult.riskScore}/100 (${safetyResult.riskLevel})`.padEnd(61) + '│');
+    logger.info(`│    Safe:            ${safetyResult.safe ? 'YES' : 'NO'}`.padEnd(61) + '│');
+    if (safetyResult.flags.length > 0) {
+      logger.info(`│    Flags:           ${safetyResult.flags.length} issue(s)`.padEnd(61) + '│');
+    }
     logger.info(`├──────────────────────────────────────────────────────────┤`);
     logger.info(`│  Decision:          ${approved ? '✅ APPROVED' : '❌ REJECTED'}`.padEnd(61) + '│');
     logger.info(`│  Threshold:         ${(this.spotConfig.minConfidenceThreshold * 100).toFixed(0)}%`.padEnd(61) + '│');

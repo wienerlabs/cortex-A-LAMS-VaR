@@ -1,11 +1,3 @@
-/**
- * Oracle Service
- * 
- * Real-time oracle staleness protection using on-chain data.
- * Supports multiple oracle sources with timestamp verification.
- * 
- * NO MOCK DATA - All prices from live on-chain sources.
- */
 import { Connection, PublicKey } from '@solana/web3.js';
 import { logger } from '../logger.js';
 import { getSolanaConnection } from '../solana/connection.js';
@@ -13,7 +5,7 @@ import type { OracleConfig, OracleStatus } from './types.js';
 
 // ============= ORACLE CONSTANTS =============
 
-// Pyth Price Feed IDs (Solana mainnet)
+// Pyth Price Feed IDs (Solana mainnet on-chain accounts — kept for reference)
 export const PYTH_PRICE_FEEDS = {
   SOL_USD: 'H6ARHf6YXhGYeQfUzQNGk6rDNnLBQKrenN712K4AQJEG',
   BTC_USD: 'GVXRSBjFk6e6J3NbVPXohDJetcTjaeeuykUpbQF8UoMU',
@@ -21,6 +13,8 @@ export const PYTH_PRICE_FEEDS = {
   BONK_USD: '8ihFLu5FimgTQ1Unh4dVyEHUGodJ5gJQCrQf4KUVB9bN',
   JUP_USD: 'g6eRCbboSwK4tSWngn773RCMexr1APQr4uA9bGZBYfo',
 } as const;
+
+const PYTH_HERMES_URL = 'https://hermes.pyth.network';
 
 // Birdeye API for real-time prices
 const BIRDEYE_API = 'https://public-api.birdeye.so';
@@ -51,6 +45,7 @@ export class OracleService {
   private config: OracleConfig;
   private priceCache: Map<string, OracleStatus> = new Map();
   private birdeyeApiKey?: string;
+  private pythFeedIdCache: Map<string, string> = new Map();
 
   constructor(
     rpcUrl?: string,
@@ -62,6 +57,96 @@ export class OracleService {
       : getSolanaConnection();
     this.config = { ...DEFAULT_ORACLE_CONFIG, ...config };
     this.birdeyeApiKey = birdeyeApiKey || process.env.BIRDEYE_API_KEY;
+  }
+
+  /**
+   * Resolve token symbol to Pyth Hermes feed ID.
+   * Same approach as solana-agent-kit's fetchPythPriceFeedID but cached.
+   */
+  private async resolvePythFeedId(symbol: string): Promise<string> {
+    const upper = symbol.toUpperCase();
+    const cached = this.pythFeedIdCache.get(upper);
+    if (cached) return cached;
+
+    const res = await fetch(
+      `${PYTH_HERMES_URL}/v2/price_feeds?query=${upper}&asset_type=crypto`
+    );
+    if (!res.ok) throw new Error(`Pyth feed lookup HTTP ${res.status}`);
+
+    const feeds = (await res.json()) as Array<{
+      id: string;
+      attributes: { base: string };
+    }>;
+    if (feeds.length === 0) throw new Error(`No Pyth feed for ${upper}`);
+
+    // Exact match when multiple feeds returned (e.g. "SOL" vs "WSOL")
+    const exact = feeds.find(
+      (f) => f.attributes.base.toUpperCase() === upper
+    );
+    const feedId = exact ? exact.id : feeds[0].id;
+    this.pythFeedIdCache.set(upper, feedId);
+    return feedId;
+  }
+
+  /**
+   * Get price from Pyth via Hermes API.
+   * Returns price, confidence interval, and publish timestamp.
+   */
+  async getPythPrice(symbol: string): Promise<OracleStatus> {
+    try {
+      const feedId = await this.resolvePythFeedId(symbol);
+
+      const res = await fetch(
+        `${PYTH_HERMES_URL}/v2/updates/price/latest?ids[]=${feedId}`
+      );
+      if (!res.ok) throw new Error(`Pyth price HTTP ${res.status}`);
+
+      const data = (await res.json()) as {
+        parsed: Array<{
+          price: { price: string; expo: number; conf: string; publish_time: number };
+          ema_price: { price: string; expo: number; conf: string };
+        }>;
+      };
+
+      if (!data.parsed?.length) throw new Error(`No Pyth data for ${symbol}`);
+
+      const entry = data.parsed[0];
+      const expo = entry.price.expo;
+      const factor = Math.pow(10, expo);
+
+      const price = Number(entry.price.price) * factor;
+      const conf = Number(entry.price.conf) * factor;
+
+      const timestamp = new Date(entry.price.publish_time * 1000);
+      const stalenessSeconds = (Date.now() - timestamp.getTime()) / 1000;
+
+      // confidence as ratio of price — lower is better (tighter spread)
+      const confidenceRatio = price > 0 ? conf / price : 1;
+
+      logger.info('[Oracle] Pyth price', {
+        symbol,
+        price: price.toFixed(4),
+        confidence: conf.toFixed(6),
+        confidenceRatio: (confidenceRatio * 100).toFixed(4) + '%',
+        stalenessSeconds: stalenessSeconds.toFixed(1),
+      });
+
+      const status: OracleStatus = {
+        source: 'pyth',
+        price,
+        timestamp,
+        stalenessSeconds,
+        isStale: stalenessSeconds > this.config.maxStalenessSeconds,
+        isEmergency: stalenessSeconds > this.config.emergencyExitSeconds,
+        confidence: confidenceRatio,
+      };
+
+      this.priceCache.set(`${symbol}-pyth`, status);
+      return status;
+    } catch (error) {
+      logger.error('Pyth price fetch failed', { symbol, error });
+      throw error;
+    }
   }
 
   /**
@@ -164,7 +249,12 @@ export class OracleService {
   async getAggregatedPrice(symbol: string): Promise<OracleStatus> {
     const statuses: OracleStatus[] = [];
 
-    // Try Jupiter first (most reliable for Solana DEX prices)
+    // Try Pyth first (on-chain oracle with confidence intervals)
+    try {
+      statuses.push(await this.getPythPrice(symbol));
+    } catch { /* continue to fallbacks */ }
+
+    // Try Jupiter (most reliable for Solana DEX prices)
     try {
       statuses.push(await this.getJupiterPrice(symbol));
     } catch { /* continue */ }
@@ -188,6 +278,9 @@ export class OracleService {
     const worstStaleness = Math.max(...statuses.map(s => s.stalenessSeconds));
     const oldestTimestamp = new Date(Math.min(...statuses.map(s => s.timestamp.getTime())));
 
+    // Carry Pyth confidence through if available
+    const pythStatus = statuses.find(s => s.source === 'pyth');
+
     return {
       source: 'aggregated',
       price: medianPrice,
@@ -195,7 +288,7 @@ export class OracleService {
       stalenessSeconds: worstStaleness,
       isStale: worstStaleness > this.config.maxStalenessSeconds,
       isEmergency: worstStaleness > this.config.emergencyExitSeconds,
-      confidence: 1 / statuses.length, // Higher = more sources agree
+      confidence: pythStatus?.confidence ?? 1 / statuses.length,
     };
   }
 }
