@@ -89,6 +89,11 @@ __all__ = [
     "ISING_CASCADE_ENABLED",
     "ISING_CASCADE_CRITICAL_THRESHOLD",
     "ISING_CASCADE_COUPLING_STRENGTH",
+    # DX-Research: Persona Diversity
+    "PERSONA_DIVERSITY_ENABLED",
+    "PERSONA_TRADER_MOMENTUM_BIAS",
+    "PERSONA_RISK_MGR_TAIL_SENSITIVITY",
+    "PERSONA_DA_CONTRARIAN_STRENGTH",
 ]
 
 import json
@@ -381,6 +386,17 @@ STIGMERGY_SWARM_THRESHOLD = int(os.environ.get("STIGMERGY_SWARM_THRESHOLD", "3")
 ISING_CASCADE_ENABLED = os.environ.get("ISING_CASCADE_ENABLED", "true").lower() == "true"
 ISING_CASCADE_CRITICAL_THRESHOLD = float(os.environ.get("ISING_CASCADE_CRITICAL_THRESHOLD", "0.8"))  # magnetization threshold for cascade alert
 ISING_CASCADE_COUPLING_STRENGTH = float(os.environ.get("ISING_CASCADE_COUPLING_STRENGTH", "1.5"))  # J: agent-agent coupling constant
+
+# DX-Research Task 6: Analyst Persona Diversity
+# DX Terminal finding: lexical diversity (different analysis perspectives) correlates with alpha.
+# Each debate agent gets a persona bias that modifies how they weigh evidence.
+PERSONA_DIVERSITY_ENABLED = os.environ.get("PERSONA_DIVERSITY_ENABLED", "true").lower() == "true"
+# Trader: momentum bias — amplifies trend-following signals (>1.0 = stronger momentum focus)
+PERSONA_TRADER_MOMENTUM_BIAS = float(os.environ.get("PERSONA_TRADER_MOMENTUM_BIAS", "1.3"))
+# Risk Manager: tail risk sensitivity — amplifies critical severity evidence
+PERSONA_RISK_MGR_TAIL_SENSITIVITY = float(os.environ.get("PERSONA_RISK_MGR_TAIL_SENSITIVITY", "1.5"))
+# Devil's Advocate: contrarian strength — how hard it pushes against the majority
+PERSONA_DA_CONTRARIAN_STRENGTH = float(os.environ.get("PERSONA_DA_CONTRARIAN_STRENGTH", "1.4"))
 
 # ── Background News Collector ──
 NEWS_COLLECTOR_INTERVAL_SECONDS = int(os.environ.get("NEWS_COLLECTOR_INTERVAL_SECONDS", "30"))
