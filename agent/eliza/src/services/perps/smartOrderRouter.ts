@@ -7,12 +7,13 @@
  * - Slippage estimation based on liquidity
  * - Venue reliability scoring
  * 
- * Supported venues: Drift, Adrena
+ * Supported venues: Drift, Drift-via-Kit, Adrena
  */
 import { logger } from '../logger.js';
 import type { PerpsVenue, PositionSide, FundingRate } from '../../types/perps.js';
 import { DriftClient } from './driftClient.js';
 import { AdrenaClient } from './adrenaClient.js';
+import { DriftViaKitClient, getDriftViaKitClient } from './driftViaKit.js';
 
 // ============= TYPES =============
 
@@ -102,10 +103,17 @@ export interface SORConfig {
     borrowRateBps: number;      // Variable, typically 0-5 bps/hour
     gasFeeBps: number;
   };
-  
+  // Kit-powered Drift fees (same as direct Drift, but routed via Kit)
+  driftKitFees: {
+    takerFeeBps: number;
+    makerFeeBps: number;
+    gasFeeBps: number;
+  };
+
   // Slippage impact factors
   driftImpactFactor: number;    // 0.001 = 0.1%
   adrenaImpactFactor: number;   // 0 (zero slippage claim)
+  driftKitImpactFactor: number; // Same as Drift, routed via Kit
   
   // Route selection
   priceDifferenceThresholdBps: number;  // If diff < this, prefer Drift (50 = 0.5%)
@@ -131,9 +139,15 @@ export const DEFAULT_SOR_CONFIG: SORConfig = {
     borrowRateBps: 2,
     gasFeeBps: 1,
   },
-  
+  driftKitFees: {
+    takerFeeBps: 10,
+    makerFeeBps: 5,
+    gasFeeBps: 1,
+  },
+
   driftImpactFactor: 0.001,
   adrenaImpactFactor: 0,
+  driftKitImpactFactor: 0.001,
   
   priceDifferenceThresholdBps: 50,
   preferredVenue: 'drift',
@@ -219,6 +233,7 @@ export class SmartOrderRouter {
   private config: SORConfig;
   private driftClient: DriftClient | null = null;
   private adrenaClient: AdrenaClient | null = null;
+  private driftKitClient: DriftViaKitClient | null = null;
   private reliabilityTracker: VenueReliabilityTracker;
 
   // Price cache
@@ -228,10 +243,32 @@ export class SmartOrderRouter {
     this.config = { ...DEFAULT_SOR_CONFIG, ...config };
     this.reliabilityTracker = new VenueReliabilityTracker(this.config.reliabilityWindowSize);
 
+    // Auto-initialize Kit-Drift when USE_AGENT_KIT is enabled
+    if (process.env.USE_AGENT_KIT === 'true') {
+      this.initDriftKit();
+    }
+
     logger.info('SmartOrderRouter initialized', {
       quoteTimeoutMs: this.config.quoteTimeoutMs,
       cacheTtlMs: this.config.cacheTtlMs,
       preferredVenue: this.config.preferredVenue,
+      driftKitEnabled: process.env.USE_AGENT_KIT === 'true',
+    });
+  }
+
+  private initDriftKit(): void {
+    const client = getDriftViaKitClient();
+    client.initialize().then(ok => {
+      if (ok) {
+        this.driftKitClient = client;
+        logger.info('SOR: Kit-Drift venue enabled');
+      } else {
+        logger.warn('SOR: Kit-Drift failed to initialize, skipping');
+      }
+    }).catch(err => {
+      logger.warn('SOR: Kit-Drift init error', {
+        error: err instanceof Error ? err.message : String(err),
+      });
     });
   }
 
@@ -244,6 +281,7 @@ export class SmartOrderRouter {
     logger.debug('SOR clients configured', {
       driftAvailable: !!drift,
       adrenaAvailable: !!adrena,
+      driftKitAvailable: !!this.driftKitClient,
     });
   }
 
@@ -272,6 +310,13 @@ export class SmartOrderRouter {
       fetchPromises.push(
         this.fetchAdrenaQuote(market, side, sizeUsd)
           .catch(e => this.handleQuoteError('adrena', market, side, e))
+      );
+    }
+
+    if (this.driftKitClient) {
+      fetchPromises.push(
+        this.fetchDriftKitQuote(market, side, sizeUsd)
+          .catch(e => this.handleQuoteError('drift', market, side, e))
       );
     }
 
@@ -420,6 +465,66 @@ export class SmartOrderRouter {
     } catch (error) {
       const latencyMs = Date.now() - startTime;
       this.reliabilityTracker.record('adrena', false, latencyMs);
+      throw error;
+    }
+  }
+
+  /**
+   * Fetch quote from Kit-powered Drift.
+   * Returns a 'drift' venue quote — the SOR treats it as a competing Drift quote.
+   * If both direct-Drift and Kit-Drift return quotes, the SOR picks the better one.
+   */
+  private async fetchDriftKitQuote(
+    market: string,
+    side: PositionSide,
+    sizeUsd: number
+  ): Promise<VenueQuote> {
+    const startTime = Date.now();
+
+    try {
+      const markets = await this.driftKitClient!.getMarkets();
+      const marketInfo = markets.find(m => m.symbol === market);
+
+      if (!marketInfo) {
+        throw new Error(`Market ${market} not found on Kit-Drift`);
+      }
+
+      const price = marketInfo.markPrice;
+      const latencyMs = Date.now() - startTime;
+
+      const tradingFeeBps = this.config.driftKitFees.takerFeeBps;
+      const fundingRateBps = Math.abs(marketInfo.fundingRate) * 24 * 10000;
+
+      const totalOI = marketInfo.openInterestLong + marketInfo.openInterestShort;
+      const liquidityDepth = totalOI * price;
+      const slippageBps = this.calculateSlippage(
+        sizeUsd,
+        liquidityDepth,
+        this.config.driftKitImpactFactor
+      );
+
+      this.reliabilityTracker.record('drift', true, latencyMs);
+
+      return {
+        venue: 'drift',
+        market,
+        side,
+        price,
+        timestamp: Date.now(),
+        fees: {
+          tradingFeeBps,
+          fundingRateBps,
+          borrowRateBps: 0,
+          gasFeeBps: this.config.driftKitFees.gasFeeBps,
+        },
+        estimatedSlippageBps: slippageBps,
+        liquidityDepth,
+        latencyMs,
+        isAvailable: true,
+      };
+    } catch (error) {
+      const latencyMs = Date.now() - startTime;
+      this.reliabilityTracker.record('drift', false, latencyMs);
       throw error;
     }
   }
@@ -681,6 +786,13 @@ export class SmartOrderRouter {
     }
 
     return stats as Record<PerpsVenue, any>;
+  }
+
+  /**
+   * Get the Kit-Drift client (for direct execution by PerpsService)
+   */
+  getDriftKitClient(): DriftViaKitClient | null {
+    return this.driftKitClient;
   }
 
   /**
