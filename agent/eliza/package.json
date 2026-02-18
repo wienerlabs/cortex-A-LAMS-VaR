@@ -57,6 +57,9 @@
     "@mrgnlabs/mrgn-common": "^2.0.7",
     "@orca-so/whirlpools-sdk": "^0.17.4",
     "@raydium-io/raydium-sdk-v2": "^0.2.32-alpha",
+    "@solana-agent-kit/plugin-defi": "^2.0.8",
+    "@solana-agent-kit/plugin-misc": "^2.0.6",
+    "@solana-agent-kit/plugin-token": "^2.0.9",
     "@solana-program/compute-budget": "^0.11.0",
     "@solana/kit": "^5.4.0",
     "@solendprotocol/solend-sdk": "^0.14.26",
@@ -71,6 +74,7 @@
     "p-queue": "^9.1.0",
     "p-retry": "^7.1.1",
     "sentiment": "^5.0.2",
+    "solana-agent-kit": "^2.0.10",
     "solana-keygen": "^0.1.3"
   }
 }
