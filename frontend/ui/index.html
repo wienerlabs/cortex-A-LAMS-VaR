@@ -2895,10 +2895,37 @@
 
         var _macroData = null;
         var _macroLastFetch = 0;
-        var _macroApiOnline = null; // null = unknown
+        var _sourceHealth = {}; // { sourceName: { status, latency, lastCheck } }
 
-        function randomLatency(base) {
-            return Math.max(1, base + Math.round((Math.random() - 0.5) * base * 0.6));
+        // Ping endpoints to measure real latency and status
+        var SOURCE_ENDPOINTS = {
+            'Pyth':          { url: 'https://hermes.pyth.network/api/latest_price_feeds?ids[]=0xef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d', type: 'json' },
+            'Birdeye':       { url: 'https://public-api.birdeye.so/public/tokenlist?sort_by=v24hUSD&sort_type=desc&offset=0&limit=1', type: 'json' },
+            'Jupiter':       { url: 'https://price.jup.ag/v6/price?ids=So11111111111111111111111111111111111111112', type: 'json' },
+            'Macro Data':    { url: null }, // handled by fetchMacroIndicators
+            'News APIs':     { url: null }, // handled by CortexAPI
+        };
+
+        async function pingSource(name) {
+            var ep = SOURCE_ENDPOINTS[name];
+            if (!ep || !ep.url) return;
+            var t0 = performance.now();
+            try {
+                var res = await fetch(ep.url, { signal: AbortSignal.timeout(8000) });
+                var elapsed = Math.round(performance.now() - t0);
+                _sourceHealth[name] = {
+                    status: res.ok ? 'online' : 'degraded',
+                    latency: elapsed,
+                    lastCheck: Date.now()
+                };
+            } catch (_) {
+                _sourceHealth[name] = { status: 'offline', latency: 0, lastCheck: Date.now() };
+            }
+        }
+
+        async function pingAllSources() {
+            var names = Object.keys(SOURCE_ENDPOINTS).filter(function(n) { return SOURCE_ENDPOINTS[n].url; });
+            await Promise.allSettled(names.map(pingSource));
         }
 
         async function fetchMacroIndicators() {
@@ -2910,39 +2937,24 @@
                     _macroData = data;
                     _macroData._latencyMs = elapsed;
                     _macroLastFetch = Date.now();
-                    _macroApiOnline = true;
+                    _sourceHealth['Macro Data'] = { status: 'online', latency: elapsed, lastCheck: Date.now() };
                     return;
                 }
             } catch (e) { /* fall through */ }
-            _macroApiOnline = false;
+            _sourceHealth['Macro Data'] = { status: 'offline', latency: 0, lastCheck: Date.now() };
         }
 
         function getSourceStatus() {
             return DATA_SOURCES.map(function(src) {
-                // For Macro Data row, use real API health
-                if (src.name === 'Macro Data' && _macroApiOnline !== null) {
-                    var status = _macroApiOnline ? 'online' : 'offline';
-                    var latency = _macroData ? (_macroData._latencyMs || 0) : 0;
-                    var age = _macroLastFetch ? (Date.now() - _macroLastFetch) / 1000 : 999;
-                    var freshness = status === 'offline' ? 'dead' : age > 120 ? 'stale' : 'fresh';
-                    return Object.assign({}, src, { status: status, latency: latency, freshness: freshness });
+                var health = _sourceHealth[src.name];
+                if (health) {
+                    var age = (Date.now() - health.lastCheck) / 1000;
+                    var freshness = health.status === 'offline' ? 'dead' : age > 120 ? 'stale' : 'fresh';
+                    return Object.assign({}, src, { status: health.status, latency: health.latency, freshness: freshness });
                 }
-
-                var roll = Math.random();
-                var status = 'online', latency;
-                if (roll > 0.95) { status = 'offline'; latency = 0; }
-                else if (roll > 0.85) { status = 'degraded'; }
-
+                // Sources without ping endpoints: show as online with estimated latency
                 var baseLatencies = { '400ms': 8, '1s': 45, 'Per block': 420, '5s': 120, '10s': 350, '60s': 800, '30s': 500 };
-                latency = latency === 0 ? 0 : randomLatency(baseLatencies[src.interval] || 100);
-                if (status === 'degraded') latency = Math.round(latency * 2.5);
-
-                var freshRoll = Math.random();
-                var freshness = 'fresh';
-                if (status === 'offline') freshness = 'dead';
-                else if (status === 'degraded' || freshRoll > 0.8) freshness = 'stale';
-
-                return Object.assign({}, src, { status: status, latency: latency, freshness: freshness });
+                return Object.assign({}, src, { status: 'online', latency: baseLatencies[src.interval] || 100, freshness: 'fresh' });
             });
         }
 
@@ -3002,9 +3014,10 @@
             renderMacroIndicators();
         }
 
-        // Initial fetch + render, then poll macro every 60s and grid every 8s
-        fetchMacroIndicators().then(function() { renderDataSources(); });
+        // Initial fetch + ping, then poll periodically
+        Promise.all([fetchMacroIndicators(), pingAllSources()]).then(function() { renderDataSources(); });
         setInterval(fetchMacroIndicators, 60000);
+        setInterval(pingAllSources, 60000);
         setInterval(renderDataSources, 8000);
     })();
     </script>
@@ -4265,8 +4278,12 @@
         let activePositions = [];
 
         function buildPosCard(pos, idx) {
-            const pnl = ((Math.random() - 0.4) * 10).toFixed(2);
-            const isUp = parseFloat(pnl) >= 0;
+            const currentPrice = (window._latestTickerPrices && window._latestTickerPrices[pos.pair]) || pos.entry;
+            const rawPnl = pos.side === 'LONG'
+                ? ((currentPrice - pos.entry) / pos.entry) * 100
+                : ((pos.entry - currentPrice) / pos.entry) * 100;
+            const pnl = rawPnl.toFixed(2);
+            const isUp = rawPnl >= 0;
             return '<div class="pos-card" data-pos-idx="' + idx + '">' +
                 '<button class="pos-card-close" onclick="closePosition(' + idx + ')">&times;</button>' +
                 '<div class="pos-card-pair"><img src="' + pos.logo + '" alt="">' + pos.pair + '</div>' +
@@ -4741,7 +4758,7 @@
                 .attr('font-size', '10px')
                 .attr('font-weight', 'bold')
                 .attr('opacity', 0)
-                .text((last.pnl >= 0 ? '+$' : '-$') + Math.abs(last.pnl).toLocaleString())
+                .text((last.pnl >= 0 ? '+' : '') + last.pnl.toFixed(2) + '%')
                 .transition().delay(2000).attr('opacity', 1);
         }
 
@@ -4868,27 +4885,33 @@
             });
         })();
 
-        // --- D3.js API Usage Heatmap ---
+        // --- D3.js API Usage Heatmap (real tracked calls) ---
         (function renderApiHeatmap() {
             const container = document.getElementById('apiHeatmap');
             if (!container || typeof d3 === 'undefined') return;
 
-            // Generate 30 days of mock hourly API usage data
+            // Build heatmap from real API call timestamps tracked by CortexAPI
+            const rawCalls = (typeof CortexAPI !== 'undefined' && CortexAPI.getUsageData) ? CortexAPI.getUsageData() : [];
             const now = new Date();
             const data = [];
+            const buckets = {};
+            rawCalls.forEach(function(ts) {
+                var d = new Date(ts);
+                var dayKey = d.toISOString().slice(0, 10);
+                var hour = d.getHours();
+                var key = dayKey + '-' + hour;
+                buckets[key] = (buckets[key] || 0) + 1;
+            });
             for (let d = 29; d >= 0; d--) {
                 const day = new Date(now);
                 day.setDate(day.getDate() - d);
                 day.setHours(0, 0, 0, 0);
+                var dayKey = day.toISOString().slice(0, 10);
                 for (let h = 0; h < 24; h++) {
-                    const base = Math.sin((h - 14) * 0.3) * 30 + 50;
-                    const noise = Math.random() * 40 - 20;
-                    const weekday = day.getDay();
-                    const weekendFactor = (weekday === 0 || weekday === 6) ? 0.6 : 1;
                     data.push({
                         date: new Date(day),
                         hour: h,
-                        usage: Math.max(0, Math.round((base + noise) * weekendFactor))
+                        usage: buckets[dayKey + '-' + h] || 0
                     });
                 }
             }
@@ -5029,6 +5052,11 @@
                 const res = await fetch(url);
                 if (!res.ok) throw new Error('CoinGecko HTTP ' + res.status);
                 const data = await res.json();
+                // Store prices globally for position card PnL calculations
+                window._latestTickerPrices = {};
+                TICKER_COINS.forEach(function(coin) {
+                    if (data[coin.id]) window._latestTickerPrices[coin.pair] = data[coin.id].usd;
+                });
                 renderTickerItems(data);
                 console.log('[TICKER] Live prices updated');
             } catch (e) {
