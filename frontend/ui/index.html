@@ -2809,71 +2809,12 @@
                     <!-- Trade Row Header -->
                     <div class="trade-row trade-row-header">
                         <div>Pair / Type</div>
-                        <div>Entry</div>
-                        <div>Current</div>
-                        <div>P&L</div>
+                        <div>Size</div>
+                        <div>Status</div>
+                        <div>Strategy</div>
                     </div>
-
-                    <!-- Active Trades -->
-                    <div class="trade-row" data-trade="trade1" onclick="toggleTradeExpand('trade1', this)">
-                        <div>
-                            <div class="trade-pair"><img src="assets/logos/solana-sol-logo.png" class="trade-pair-logo" alt="SOL">SOL/USDC</div>
-                            <div class="trade-type long">LONG</div>
-                        </div>
-                        <div>$172.34</div>
-                        <div>$178.42</div>
-                        <div class="text-green">+3.52%</div>
-                    </div>
-
-                    <div class="trade-row" data-trade="trade2" onclick="toggleTradeExpand('trade2', this)">
-                        <div>
-                            <div class="trade-pair"><img src="assets/logos/raydium-ray-logo.svg" class="trade-pair-logo" alt="RAY">RAY/USDC</div>
-                            <div class="trade-type long">LONG</div>
-                        </div>
-                        <div>$5.21</div>
-                        <div>$5.67</div>
-                        <div class="text-green">+8.83%</div>
-                    </div>
-
-                    <div class="trade-row" data-trade="trade3" onclick="toggleTradeExpand('trade3', this)">
-                        <div>
-                            <div class="trade-pair"><img src="assets/logos/jupiter-ag-jup-logo.svg" class="trade-pair-logo" alt="JUP">JUP/USDC</div>
-                            <div class="trade-type short">SHORT</div>
-                        </div>
-                        <div>$1.31</div>
-                        <div>$1.23</div>
-                        <div class="text-green">+6.11%</div>
-                    </div>
-
-                    <div class="trade-row" data-trade="trade4" onclick="toggleTradeExpand('trade4', this)">
-                        <div>
-                            <div class="trade-pair">DRIFT/USDC</div>
-                            <div class="trade-type long">LONG</div>
-                        </div>
-                        <div>$0.92</div>
-                        <div>$0.89</div>
-                        <div class="text-red">-3.26%</div>
-                    </div>
-
-                    <div class="trade-row" data-trade="trade5" onclick="toggleTradeExpand('trade5', this)">
-                        <div>
-                            <div class="trade-pair"><img src="assets/logos/bonk1-bonk-logo.svg" class="trade-pair-logo" alt="BONK">BONK/USDC</div>
-                            <div class="trade-type long">LONG</div>
-                        </div>
-                        <div>$0.000021</div>
-                        <div>$0.000024</div>
-                        <div class="text-green">+14.28%</div>
-                    </div>
-
-                    <div class="trade-row" data-trade="trade6" onclick="toggleTradeExpand('trade6', this)">
-                        <div>
-                            <div class="trade-pair"><img src="assets/logos/orca-orca-logo.svg" class="trade-pair-logo" alt="ORCA">ORCA/USDC</div>
-                            <div class="trade-type long">LONG</div>
-                        </div>
-                        <div>$4.12</div>
-                        <div>$4.08</div>
-                        <div class="text-red">-0.97%</div>
-                    </div>
+                    <!-- Rows injected by loadActiveTrades() -->
+                    <div id="trades-loading" style="text-align:center;padding:2rem;color:var(--dim);font-size:0.75rem;">Loading trades…</div>
                 </div>
 
                 <!-- API Usage Heatmap -->
@@ -3356,66 +3297,129 @@
             onMove(e);
         }
 
-        // --- Trade Data & Inline Expansion ---
-        const TRADES = {
-            trade1: {
-                pair: 'SOL/USDC', dir: 'LONG', dirClass: 'text-green',
-                entry: '$172.34', current: '$178.42', size: '12.5 SOL', leverage: '2x',
-                pnl: '+$76.00', pnlPct: '+3.52%', pnlClass: 'text-green',
-                liq: '$86.17', tp: '$195.00', sl: '$165.00',
-                votes: [1,1,1,1,0], decision: 'APPROVED (4/5)', decClass: 'text-green',
-                opened: '2026-02-08 14:23 UTC', regime: 'ACCUMULATION',
-                initiator: 'Momentum Agent', tx: '5xK9...7mPq',
-            },
-            trade2: {
-                pair: 'RAY/USDC', dir: 'LONG', dirClass: 'text-green',
-                entry: '$5.21', current: '$5.67', size: '1,840 RAY', leverage: '3x',
-                pnl: '+$846.72', pnlPct: '+8.83%', pnlClass: 'text-green',
-                liq: '$1.74', tp: '$6.80', sl: '$4.70',
-                votes: [1,1,1,0,1], decision: 'APPROVED (4/5)', decClass: 'text-green',
-                opened: '2026-02-07 09:41 UTC', regime: 'ACCUMULATION',
-                initiator: 'Mean Rev Agent', tx: '8bR2...kN4x',
-            },
-            trade3: {
-                pair: 'JUP/USDC', dir: 'SHORT', dirClass: 'text-red',
-                entry: '$1.31', current: '$1.23', size: '6,200 JUP', leverage: '2x',
-                pnl: '+$496.00', pnlPct: '+6.11%', pnlClass: 'text-green',
-                liq: '$2.62', tp: '$1.05', sl: '$1.45',
-                votes: [1,0,1,1,1], decision: 'APPROVED (4/5)', decClass: 'text-green',
-                opened: '2026-02-08 11:07 UTC', regime: 'DISTRIBUTION',
-                initiator: 'Sentiment Agent', tx: '3pLm...vQ8z',
-            },
-            trade4: {
-                pair: 'DRIFT/USDC', dir: 'LONG', dirClass: 'text-green',
-                entry: '$0.92', current: '$0.89', size: '4,500 DRIFT', leverage: '2x',
-                pnl: '-$135.00', pnlPct: '-3.26%', pnlClass: 'text-red',
-                liq: '$0.46', tp: '$1.15', sl: '$0.82',
-                votes: [1,1,0,1,0], decision: 'APPROVED (3/5)', decClass: 'text-green',
-                opened: '2026-02-08 16:52 UTC', regime: 'ACCUMULATION',
-                initiator: 'Momentum Agent', tx: '9wXk...hT2a',
-            },
-            trade5: {
-                pair: 'BONK/USDC', dir: 'LONG', dirClass: 'text-green',
-                entry: '$0.000021', current: '$0.000024', size: '145.2M BONK', leverage: '1x',
-                pnl: '+$435.60', pnlPct: '+14.28%', pnlClass: 'text-green',
-                liq: 'N/A', tp: '$0.000030', sl: '$0.000018',
-                votes: [1,1,1,1,1], decision: 'APPROVED (5/5)', decClass: 'text-green',
-                opened: '2026-02-06 22:15 UTC', regime: 'MARKUP',
-                initiator: 'Arbitrage Agent', tx: '2nFg...pR7m',
-            },
-            trade6: {
-                pair: 'ORCA/USDC', dir: 'LONG', dirClass: 'text-green',
-                entry: '$4.12', current: '$4.08', size: '820 ORCA', leverage: '2x',
-                pnl: '-$32.80', pnlPct: '-0.97%', pnlClass: 'text-red',
-                liq: '$2.06', tp: '$5.00', sl: '$3.80',
-                votes: [1,0,1,1,0], decision: 'APPROVED (3/5)', decClass: 'text-green',
-                opened: '2026-02-09 01:33 UTC', regime: 'ACCUMULATION',
-                initiator: 'Risk Agent', tx: '7kBw...cJ5n',
-            },
-        };
-
+        // --- Trade Data & Inline Expansion (live from /execution/log) ---
+        let TRADES = {};
         const AGENTS = ['Momentum', 'Mean Rev', 'Sentiment', 'Risk', 'Arbitrage'];
         let expandedTradeId = null;
+
+        const TOKEN_LOGOS = {
+            SOL: 'assets/logos/solana-sol-logo.png',
+            RAY: 'assets/logos/raydium-ray-logo.svg',
+            JUP: 'assets/logos/jupiter-ag-jup-logo.svg',
+            BONK: 'assets/logos/bonk1-bonk-logo.svg',
+            ORCA: 'assets/logos/orca-orca-logo.svg',
+            DRIFT: '',
+            USDC: 'assets/logos/usd-coin-usdc-logo.svg',
+        };
+
+        function fmtTradePrice(p) {
+            if (p == null) return '—';
+            if (p >= 1000) return '$' + p.toLocaleString('en-US', { maximumFractionDigits: 0 });
+            if (p >= 1) return '$' + p.toFixed(2);
+            if (p >= 0.01) return '$' + p.toFixed(4);
+            return '$' + p.toFixed(6);
+        }
+
+        function mapExecEntry(entry, idx) {
+            var mint = entry.token_mint || '';
+            var sym = entry.token || mint.slice(0, 6);
+            // Resolve symbol from KNOWN_MINTS if available
+            if (typeof KNOWN_MINTS !== 'undefined' && KNOWN_MINTS[mint]) {
+                sym = KNOWN_MINTS[mint].sym;
+            }
+            var pair = sym + '/USDC';
+            var isBuy = (entry.direction || '').toLowerCase() !== 'sell';
+            var dir = isBuy ? 'LONG' : 'SHORT';
+            var dirClass = isBuy ? 'text-green' : 'text-red';
+            var status = entry.status || 'unknown';
+            var statusClass = status === 'executed' ? 'text-green' : status === 'failed' ? 'text-red' : 'text-dim';
+            var strategy = entry.strategy || '—';
+            var ts = entry.timestamp ? new Date(entry.timestamp * 1000).toISOString().replace('T', ' ').slice(0, 19) + ' UTC' : '—';
+            var txHash = entry.tx_hash || mint.slice(0, 4) + '...' + mint.slice(-4);
+            var sizeUsd = entry.trade_size_usd || 0;
+
+            return {
+                pair: pair, dir: dir, dirClass: dirClass,
+                entry: fmtTradePrice(entry.price_usd || sizeUsd), current: '—',
+                size: fmtTradePrice(sizeUsd), leverage: '1x',
+                pnl: '—', pnlPct: '—', pnlClass: 'text-dim',
+                liq: 'N/A', tp: '—', sl: '—',
+                votes: [1,1,1,1,1], decision: status.toUpperCase(), decClass: statusClass,
+                opened: ts, regime: '—',
+                initiator: strategy, tx: txHash,
+                _sym: sym, _logo: TOKEN_LOGOS[sym] || '', _status: status, _statusClass: statusClass, _strategy: strategy, _sizeUsd: sizeUsd,
+            };
+        }
+
+        function renderTradeRows(entries) {
+            var container = document.getElementById('trades-container');
+            if (!container) return;
+            // Collapse any expanded detail before re-rendering
+            if (typeof collapseTradeExpand === 'function') collapseTradeExpand();
+            // Keep header row, remove everything else
+            var header = container.querySelector('.trade-row-header');
+            container.innerHTML = '';
+            if (header) container.appendChild(header);
+
+            if (!entries || entries.length === 0) {
+                container.innerHTML += '<div style="text-align:center;padding:2rem;color:var(--dim);font-size:0.75rem;">No active trades</div>';
+                return;
+            }
+
+            TRADES = {};
+            entries.forEach(function (entry, i) {
+                var id = 'trade' + (i + 1);
+                var t = mapExecEntry(entry, i);
+                TRADES[id] = t;
+                var logoHtml = t._logo ? '<img src="' + t._logo + '" class="trade-pair-logo" alt="' + t._sym + '">' : '';
+                var dirType = t.dir === 'LONG' ? 'long' : 'short';
+                var row = document.createElement('div');
+                row.className = 'trade-row';
+                row.setAttribute('data-trade', id);
+                row.onclick = function () { toggleTradeExpand(id, row); };
+                row.innerHTML =
+                    '<div>' +
+                        '<div class="trade-pair">' + logoHtml + t.pair + '</div>' +
+                        '<div class="trade-type ' + dirType + '">' + t.dir + '</div>' +
+                    '</div>' +
+                    '<div>' + t.size + '</div>' +
+                    '<div class="' + t._statusClass + '">' + t._status.toUpperCase() + '</div>' +
+                    '<div>' + t._strategy + '</div>';
+                container.appendChild(row);
+            });
+        }
+
+        function mockActiveTrades() {
+            var pairs = ['SOL','RAY','JUP','BONK','ORCA','DRIFT'];
+            var strats = ['spot','lp','arb','perp'];
+            var statuses = ['executed','simulated','executed','executed','simulated','executed'];
+            return pairs.map(function (sym, i) {
+                return {
+                    token: sym, token_mint: '', direction: i % 3 === 0 ? 'sell' : 'buy',
+                    trade_size_usd: +(500 + Math.random() * 5000).toFixed(2),
+                    amount: +(1 + Math.random() * 100).toFixed(4),
+                    strategy: strats[i % strats.length], status: statuses[i],
+                    timestamp: (Date.now() / 1000) - i * 3600,
+                };
+            });
+        }
+
+        async function loadActiveTrades() {
+            var entries = null;
+            try {
+                if (typeof CortexAPI !== 'undefined') {
+                    var data = await CortexAPI.get('/execution/log?limit=20');
+                    if (data && data.entries && data.entries.length > 0) entries = data.entries;
+                }
+            } catch (e) {
+                console.warn('[TRADES] API fetch failed:', e.message);
+            }
+            if (!entries) entries = mockActiveTrades();
+            renderTradeRows(entries);
+        }
+
+        loadActiveTrades();
+        setInterval(loadActiveTrades, 30000);
 
         function buildTradeDetail(t) {
             const votesHtml = t.votes.map((v, i) => {
