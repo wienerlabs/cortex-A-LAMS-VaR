@@ -38,6 +38,7 @@ import { FlashProductionClient, getFlashProductionClient, FlashProductionConfig 
 import { PerpsRiskManager, getPerpsRiskManager, PerpsRiskConfig, RiskAssessment } from './perpsRiskManager.js';
 import { FundingRateAggregator, getFundingRateAggregator } from './fundingRateAggregator.js';
 import { SmartOrderRouter, getSmartOrderRouter, SORConfig, SelectedRoute } from './smartOrderRouter.js';
+import { DriftViaKitClient } from './driftViaKit.js';
 
 // ============= CONFIGURATION =============
 
@@ -394,8 +395,24 @@ export class PerpsService {
     let result: PerpsTradeResult;
 
     switch (venue) {
-      case 'drift':
-        // Use PRODUCTION client if available
+      case 'drift': {
+        // Try Kit-Drift first when USE_AGENT_KIT is enabled and SOR exposes it
+        const kitClient = this.smartOrderRouter?.getDriftKitClient();
+        if (kitClient?.isInitialized()) {
+          logger.info('Executing Drift trade via Agent Kit', { market, side, size });
+          result = await kitClient.openPosition({
+            market,
+            side,
+            sizeUsd: size * entryPrice,
+            leverage,
+          });
+          if (result.success) break;
+          logger.warn('Kit-Drift execution failed, falling back to direct Drift', {
+            error: result.error,
+          });
+        }
+
+        // Fallback: PRODUCTION client
         if (this.driftProductionClient) {
           result = await this.driftProductionClient.openPosition({
             market: market as DriftPerpMarket,
@@ -416,6 +433,7 @@ export class PerpsService {
           throw new Error('Drift client not initialized');
         }
         break;
+      }
 
       case 'jupiter':
         // Use PRODUCTION client if available
@@ -611,9 +629,25 @@ export class PerpsService {
     logger.info('Closing perps position', { venue, market, side, size });
 
     switch (venue) {
-      case 'drift':
+      case 'drift': {
+        // Try Kit-Drift first when available
+        const kitClient = this.smartOrderRouter?.getDriftKitClient();
+        if (kitClient?.isInitialized() && side) {
+          logger.info('Closing Drift position via Agent Kit', { market, side });
+          const kitResult = await kitClient.closePosition({ market, side, sizeUsd: size ?? 0 });
+          if (kitResult.success) return kitResult;
+          logger.warn('Kit-Drift close failed, falling back to direct Drift', {
+            error: kitResult.error,
+          });
+        }
+
+        // Fallback: production or legacy client
+        if (this.driftProductionClient) {
+          return this.driftProductionClient.closePosition({ market: market as DriftPerpMarket, size, slippageBps });
+        }
         if (!this.driftClient) throw new Error('Drift client not initialized');
         return this.driftClient.closePosition({ market: market as DriftMarket, size, slippageBps });
+      }
 
       case 'jupiter':
         if (!this.jupiterClient) throw new Error('Jupiter client not initialized');
@@ -697,15 +731,25 @@ export class PerpsService {
   async getMarketPrice(venue: PerpsVenue, market: string): Promise<{ price: number; venue: PerpsVenue } | null> {
     try {
       switch (venue) {
-        case 'drift':
-          // Try production client first, then legacy client
+        case 'drift': {
+          // Try production client first, then Kit, then legacy
           if (this.driftProductionClient) {
             const prodMarket = await this.driftProductionClient.getMarket(market as DriftPerpMarket);
             return prodMarket ? { price: prodMarket.markPrice, venue } : null;
           }
+
+          // Try Kit-Drift for price data
+          const kitClient = this.smartOrderRouter?.getDriftKitClient();
+          if (kitClient?.isInitialized()) {
+            const kitMarkets = await kitClient.getMarkets();
+            const kitMarket = kitMarkets.find(m => m.symbol === market);
+            if (kitMarket) return { price: kitMarket.markPrice, venue };
+          }
+
           if (!this.driftClient) return null;
           const driftMarket = await this.driftClient.getMarket(market as DriftMarket);
           return driftMarket ? { price: driftMarket.markPrice, venue } : null;
+        }
 
         case 'jupiter':
           // Legacy client for now - production doesn't have price method yet
