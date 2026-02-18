@@ -651,8 +651,22 @@ def _devils_advocate_argue(ctx: DebateContext, trader: AgentArgument,
     trader_strength = trader.confidence * trader.bayesian_posterior
     risk_strength = risk_mgr.confidence * risk_mgr.bayesian_posterior
 
+    # DX-Research Task 6: Persona — contrarian strength amplifies the gap perception.
+    if PERSONA_DIVERSITY_ENABLED:
+        gap = abs(trader_strength - risk_strength)
+        amplified_gap = gap * PERSONA_DA_CONTRARIAN_STRENGTH
+        if trader_strength > risk_strength:
+            trader_strength_adj = trader_strength
+            risk_strength_adj = max(0.01, trader_strength - amplified_gap)
+        else:
+            risk_strength_adj = risk_strength
+            trader_strength_adj = max(0.01, risk_strength - amplified_gap)
+    else:
+        trader_strength_adj = trader_strength
+        risk_strength_adj = risk_strength
+
     # Challenge the stronger side
-    target = "trader" if trader_strength > risk_strength else "risk_manager"
+    target = "trader" if trader_strength_adj > risk_strength_adj else "risk_manager"
     arguments: list[str] = []
     da_evidence: list[DebateEvidence] = []
 
@@ -674,7 +688,8 @@ def _devils_advocate_argue(ctx: DebateContext, trader: AgentArgument,
             arguments.append(f"Kelly based on only {ctx.kelly_stats.get('n_trades', 0)} trades — insufficient for reliable edge estimation")
 
         position = "reduce"
-        confidence = risk_strength / (trader_strength + risk_strength) if (trader_strength + risk_strength) > 0 else 0.5
+        total_s = trader_strength_adj + risk_strength_adj
+        confidence = risk_strength_adj / total_s if total_s > 0 else 0.5
     else:
         # Challenge the bearish case
         arguments.append(f"Challenging risk manager (confidence {risk_mgr.confidence:.2f}, posterior {risk_mgr.bayesian_posterior:.2f})")
@@ -690,7 +705,8 @@ def _devils_advocate_argue(ctx: DebateContext, trader: AgentArgument,
             arguments.append(f"Historical win rate {ctx.kelly_stats['win_rate']:.1%} suggests risk aversion costs alpha")
 
         position = "approve"
-        confidence = trader_strength / (trader_strength + risk_strength) if (trader_strength + risk_strength) > 0 else 0.5
+        total_s = trader_strength_adj + risk_strength_adj
+        confidence = trader_strength_adj / total_s if total_s > 0 else 0.5
 
     return AgentArgument(
         role="devils_advocate",
@@ -900,6 +916,7 @@ def run_debate(
         "strategy": strategy,
         "info_asymmetry_active": DEBATE_INFO_ASYMMETRY_ENABLED,
         "stigmergy_active": STIGMERGY_ENABLED and bool(token),
+        "persona_diversity_active": PERSONA_DIVERSITY_ENABLED,
         "evidence_summary": {
             "total": total_evidence,
             "bullish": len(evidence["bullish"]),
