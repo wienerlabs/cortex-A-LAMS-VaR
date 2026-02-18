@@ -39,6 +39,21 @@ Thumbs.db
 # State files
 state-*.md
 
+# Agent / backend node_modules
+agent/openserv/node_modules/
+agent/eliza/node_modules/
+backend/node_modules/
+
+# Secrets
+.env
+.env.local
+
+# Logs
+*.log
+
+# Backtest data
+data/backtest_results/
+
 # Docker
 Dockerfile
 docker-compose.yml

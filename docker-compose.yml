@@ -95,6 +95,18 @@ services:
       GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/provisioning/dashboards/cortex-dashboard.json
     restart: unless-stopped
 
+  # Ollama LLM backend for narrator (use: docker compose --profile narrator up)
+  ollama:
+    image: ollama/ollama:latest
+    container_name: cortex-ollama
+    profiles:
+      - narrator
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
+
   # Development mode with hot-reload (use: docker compose --profile dev up)
   risk-engine-dev:
     build:
@@ -131,4 +143,5 @@ volumes:
   redis-data:
   prometheus_data:
   grafana_data:
+  ollama_data:
 

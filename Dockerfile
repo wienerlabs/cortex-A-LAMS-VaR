@@ -28,6 +28,15 @@ COPY pytest.ini .
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 
+# Narrator (requires Ollama — disabled by default)
+ENV NARRATOR_ENABLED=false
+
+# DX feature flags (all enabled by default)
+ENV DX_PROSPECT_THEORY_ENABLED=true
+ENV DX_INFO_ASYMMETRY_ENABLED=true
+ENV DX_HERDING_ENABLED=true
+ENV DX_COMPOSITE_ENABLED=true
+
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
