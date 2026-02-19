@@ -386,19 +386,16 @@
     </script>
     <script>
     (function() {
-        // Strategy P&L Breakdown — tries API, falls back to hardcoded
-        var fallbackStrategies = [
-            { name: 'LP Rebalancing', alloc: '40%', pnl: 4823.50, trades: 47, winRate: 72.3, maxPnl: 12000, color: 'var(--green)',
-              params: 'IL Threshold: 2-3% · Max Pos: 3 · Confidence: 84%' },
-            { name: 'Arbitrage', alloc: '30%', pnl: 2156.80, trades: 134, winRate: 81.3, maxPnl: 12000, color: 'var(--green)',
-              params: 'Min Spread: ≥0.5% · Max Concurrent: 5 · Confidence: 80%' },
-            { name: 'Perpetuals', alloc: '30%', pnl: -891.20, trades: 23, winRate: 43.5, maxPnl: 12000, color: 'var(--red)',
-              params: 'Max Leverage: ≤5x · Hold: 8h · Stop: 5% · TP: 10%' }
-        ];
+        // Strategy P&L Breakdown — tries API, no hardcoded fallback
+        var fallbackStrategies = [];
 
         function renderStrategyCards(strategies) {
             var stratGrid = document.getElementById('stratGrid');
             stratGrid.innerHTML = '';
+            if (!strategies || strategies.length === 0) {
+                stratGrid.innerHTML = '<div style="padding:2rem;text-align:center;color:var(--dim);font-size:0.65rem;font-family:var(--font-mono);grid-column:1/-1">No trade history available</div>';
+                return;
+            }
             strategies.forEach(function(s) {
                 var pnlClass = s.pnl >= 0 ? 'text-green' : 'text-red';
                 var barPct = Math.min(Math.abs(s.pnl) / (s.maxPnl || 12000) * 100, 100);
@@ -486,24 +483,18 @@
     </script>
     <script>
     (function() {
-        // Agent Attribution — tries /agents/status API, falls back to hardcoded
-        var fallbackAgents = [
-            { name: 'Technical Analyst', role: 'Analyst', trades: 89, winRate: 68.5, pnl: 1842.30 },
-            { name: 'On-Chain Analyst', role: 'Analyst', trades: 72, winRate: 71.2, pnl: 1523.60 },
-            { name: 'Sentiment Analyst', role: 'Analyst', trades: 65, winRate: 58.4, pnl: -312.40 },
-            { name: 'Macro Analyst', role: 'Analyst', trades: 54, winRate: 63.0, pnl: 687.90 },
-            { name: 'Protocol Researcher', role: 'Researcher', trades: 41, winRate: 75.6, pnl: 1105.20 },
-            { name: 'Risk Researcher', role: 'Researcher', trades: 38, winRate: 73.7, pnl: 956.80 },
-            { name: 'Trader Agent', role: 'Decision', trades: 134, winRate: 66.4, pnl: 2340.50 },
-            { name: 'Risk Manager', role: 'Decision', trades: 134, winRate: 0, pnl: -1890.30 },
-            { name: 'Portfolio Manager', role: 'Decision', trades: 134, winRate: 69.4, pnl: -164.50 }
-        ];
+        // Agent Attribution — tries /agents/status API, no hardcoded fallback
+        var fallbackAgents = [];
 
         function renderAgentTable(agents) {
-            var maxAbsPnl = 1;
-            agents.forEach(function(a) { var v = Math.abs(a.pnl || 0); if (v > maxAbsPnl) maxAbsPnl = v; });
             var tbody = document.getElementById('attrBody');
             tbody.innerHTML = '';
+            if (!agents || agents.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" style="padding:2rem;text-align:center;color:var(--dim);font-size:0.65rem;font-family:var(--font-mono)">No trade history available</td></tr>';
+                return;
+            }
+            var maxAbsPnl = 1;
+            agents.forEach(function(a) { var v = Math.abs(a.pnl || 0); if (v > maxAbsPnl) maxAbsPnl = v; });
             agents.forEach(function(a) {
                 var pnl = a.pnl || 0;
                 var pnlClass = pnl >= 0 ? 'text-green' : 'text-red';

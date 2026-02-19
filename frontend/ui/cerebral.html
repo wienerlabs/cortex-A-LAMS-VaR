@@ -670,45 +670,18 @@
 
     <script>
     // === 2. ADVERSARIAL DEBATE THEATER ===
-    const DEBATE_SCENARIOS = [
-        {
-            trigger: 'SOL/USDC Long Signal — Momentum Breakout',
-            rounds: [
-                { speaker: 'Trader Agent', role: 'Proposal', text: 'SOL breaking above 20-EMA with volume confirmation. RSI at 62, not overbought. Proposing 5% portfolio LONG at $86.50 with 2x leverage. Target: $92.00 (+6.4%). Stop: $83.20 (-3.8%).', score: 78, scoreLabel: 'Conviction' },
-                { speaker: 'Risk Manager', role: 'Challenge', text: 'Current regime: DISTRIBUTION with 67% confidence. Historical drawdown in distribution phases averages -8.2%. Leverage at 2x amplifies tail risk. VaR(95%) would increase from 3.1% to 5.8%. Recommend reducing to 1.5x or waiting for regime confirmation.', score: 71, scoreLabel: 'Risk Score' },
-                { speaker: 'Trader Agent', role: 'Defense', text: 'Acknowledged regime concern. Modifying: reduce leverage to 1.5x, tighten stop to $84.10 (-2.8%), reduce size to 3.5% portfolio. On-chain data shows whale accumulation — 3 wallets added 45K SOL in last 4h. Sentiment score: +0.34 (mildly bullish).', score: 82, scoreLabel: 'Adjusted' },
-                { speaker: 'Portfolio Mgr', role: 'Decision', text: 'APPROVED with modifications. Position size: 3.5%, leverage: 1.5x, stop: $84.10. Rationale: momentum signal valid but regime uncertainty warrants conservative sizing. Guardian: verify liquidity depth before execution.', score: 85, scoreLabel: 'Final' },
-            ],
-            verdict: 'APPROVED', verdictClass: 'text-green', confidence: 85
-        },
-        {
-            trigger: 'RAY/USDC Short Signal — Mean Reversion',
-            rounds: [
-                { speaker: 'Mean Rev Agent', role: 'Proposal', text: 'RAY/USDC at +2.3σ above 20-day mean. Bollinger Band squeeze releasing to upside — historically reverts within 48h. Proposing 4% SHORT at $0.602 with 2x leverage. Target: $0.555 (-7.8%). Stop: $0.635 (+5.5%).', score: 74, scoreLabel: 'Conviction' },
-                { speaker: 'Risk Manager', role: 'Challenge', text: 'RAY has low liquidity — 24h volume only $12M. Slippage risk on 2x leveraged short is significant. Additionally, RAY governance vote upcoming in 72h — event risk not priced in. Circuit breaker: 2 recent stop-losses on RAY positions.', score: 82, scoreLabel: 'Risk Score' },
-                { speaker: 'Mean Rev Agent', role: 'Defense', text: 'Valid concerns on liquidity. However, Z-score at 2.3 has 89% historical reversion rate within 3 days. Willing to reduce to 1x leverage and 2% size. Governance vote is for fee parameter change — low impact historically.', score: 68, scoreLabel: 'Adjusted' },
-                { speaker: 'Portfolio Mgr', role: 'Decision', text: 'REJECTED. Circuit breaker proximity (2/3 stop-losses) combined with governance event risk and low liquidity creates unfavorable risk/reward. Re-evaluate post governance vote. Mean reversion signal noted for watchlist.', score: 45, scoreLabel: 'Final' },
-            ],
-            verdict: 'REJECTED', verdictClass: 'text-red', confidence: 45
-        },
-        {
-            trigger: 'Cross-DEX Arbitrage — BONK Spread',
-            rounds: [
-                { speaker: 'Arb Agent', role: 'Proposal', text: 'BONK/USDC spread detected: Jupiter $0.0000312 vs Raydium $0.0000318 (1.92% spread). Estimated profit after gas: $142 on $8,000 notional. Execution window: ~4 seconds. Proposing immediate atomic execution.', score: 88, scoreLabel: 'Conviction' },
-                { speaker: 'Risk Manager', role: 'Challenge', text: 'Spread is above threshold (≥0.15%). However, BONK slippage on $8K notional historically 0.8-1.2%. Net profit after slippage may be only $60-80. Gas cost: ~$0.02. Acceptable risk/reward but reduce notional to $5K for safety.', score: 65, scoreLabel: 'Risk Score' },
-                { speaker: 'Arb Agent', role: 'Defense', text: 'Agreed on $5K notional. Adjusted profit estimate: $85-95 after slippage. Execution via Jupiter route optimizer for best fill. Latency to both DEXs: 280ms. Window still open — spread widening to 2.1%.', score: 91, scoreLabel: 'Adjusted' },
-                { speaker: 'Portfolio Mgr', role: 'Decision', text: 'APPROVED — fast track. Atomic execution authorized at $5K notional. Guardian: verify both pool liquidity depths exceed 3x notional before execution. Time-critical — bypass standard approval delay.', score: 92, scoreLabel: 'Final' },
-            ],
-            verdict: 'APPROVED (FAST)', verdictClass: 'text-green', confidence: 92
-        },
-    ];
-    let currentDebateIdx = 0;
     var debateArchive = [];
 
     function renderDebate(archiveIdx) {
         var isArchive = typeof archiveIdx === 'number';
-        var scenario = isArchive ? debateArchive[archiveIdx] : DEBATE_SCENARIOS[currentDebateIdx % DEBATE_SCENARIOS.length];
+        var scenario = isArchive ? debateArchive[archiveIdx] : (debateArchive.length ? debateArchive[0] : null);
         var container = document.getElementById('dtContainer');
+        if (!scenario) {
+            container.innerHTML = '<div style="color:var(--dim);padding:2rem;text-align:center">No debate data available</div>';
+            document.getElementById('dtTimestamp').textContent = '--';
+            document.getElementById('dtSummary').innerHTML = '';
+            return;
+        }
         document.getElementById('dtTimestamp').textContent = scenario.trigger;
 
         // Rounds with score progress bars
@@ -748,14 +721,7 @@
             '</div>';
     }
 
-    function pushToArchive() {
-        var scenario = DEBATE_SCENARIOS[currentDebateIdx % DEBATE_SCENARIOS.length];
-        var now = new Date();
-        var ts = ('0' + now.getHours()).slice(-2) + ':' + ('0' + now.getMinutes()).slice(-2) + ':' + ('0' + now.getSeconds()).slice(-2);
-        debateArchive.unshift({ trigger: scenario.trigger, rounds: scenario.rounds, verdict: scenario.verdict, verdictClass: scenario.verdictClass, confidence: scenario.confidence, timestamp: ts });
-        if (debateArchive.length > 10) debateArchive.pop();
-        renderArchiveList(-1);
-    }
+
 
     function renderArchiveList(activeIdx) {
         var el = document.getElementById('dtArchive');
@@ -823,17 +789,19 @@
 
     var _debateLiveActive = false;
 
-    // Initial render with scenarios, then try live
-    pushToArchive();
+    // Initial render (empty until API responds)
     renderDebate();
 
-    // Try live debates first, fall back to scenario rotation
+    // Try live debates, show empty state if unavailable
     (async function() {
         var live = await fetchLiveDebate();
         _debateLiveActive = live;
         var statusEl = document.getElementById('dtLiveStatus');
         if (statusEl) statusEl.textContent = live ? 'LIVE' : 'Offline';
-        if (!live) console.log('[Cerebral] No live debates — using built-in scenarios');
+        if (!live) {
+            console.log('[Cerebral] No live debates available');
+            renderDebate();
+        }
     })();
 
     setInterval(async function() {
@@ -841,11 +809,7 @@
         _debateLiveActive = live;
         var statusEl = document.getElementById('dtLiveStatus');
         if (statusEl) statusEl.textContent = live ? 'LIVE' : 'Offline';
-        if (!live) {
-            currentDebateIdx++;
-            pushToArchive();
-            renderDebate();
-        }
+        if (!live) renderDebate();
     }, 10000);
     </script>
 
@@ -1437,57 +1401,24 @@
             return true;
         }
 
-        var _cbTick = 0;
-        function simulateCycle() {
-            // Prefer live data; fall back to deterministic oscillation
-            if (applyLiveDrawdown()) {
-                _cbLiveActive = true;
-                applyLiveCBData();
-                renderBreakers();
-                return;
-            }
-            _cbLiveActive = false;
-            _cbTick++;
-
-            // Deterministic oscillation for drawdown values
-            var ddWave = Math.sin(_cbTick * 0.25) * 0.15 + Math.sin(_cbTick * 0.11) * 0.08;
-            dailyDD = Math.max(0, Math.min(8, dailyDD + ddWave));
-            weeklyDD = Math.max(0, Math.min(15, weeklyDD + ddWave * 0.6));
-            oracleStale = Math.max(1, Math.min(45, Math.round(4 + Math.sin(_cbTick * 0.18) * 8)));
-
-            var dailyLim = 5;
-            if (dailyDD >= dailyLim) {
-                addAlert('Drawdown', 'critical', 'Daily DD ' + dailyDD.toFixed(1) + '% ≥ ' + dailyLim + '% — PAUSED', 'Pause All');
-                if (typeof showToast === 'function') showToast('Daily drawdown ' + dailyDD.toFixed(1) + '% — ALL STRATEGIES PAUSED', 'critical', 10000);
-            } else if (dailyDD >= dailyLim * 0.6) {
-                addAlert('Drawdown', 'warning', 'Daily DD ' + dailyDD.toFixed(1) + '% approaching limit', 'Monitor');
-            }
-
-            // Deterministic breaker cycling (every ~7 ticks one breaker increments, every ~10 one resets)
-            if (_cbTick % 7 === 0) {
-                var idx = _cbTick % 3;
-                BREAKERS[idx].current = Math.min(BREAKERS[idx].threshold, BREAKERS[idx].current + 1);
-                var ratio = BREAKERS[idx].current / BREAKERS[idx].threshold;
-                var sev = ratio >= 1 ? 'critical' : ratio >= 0.66 ? 'warning' : 'info';
-                addAlert('Breaker', sev, BREAKERS[idx].name + ': ' + BREAKERS[idx].current + '/' + BREAKERS[idx].threshold + ' triggers', ratio >= 1 ? 'TRIPPED' : 'Monitor');
-                if (ratio >= 1 && typeof showCircuitBreakerAlert === 'function') {
-                    showCircuitBreakerAlert(BREAKERS[idx].name, BREAKERS[idx].triggers[0], 'TRIPPED');
-                }
-            }
-            if (_cbTick % 10 === 0) {
-                var ri = (_cbTick / 10) % 3;
-                if (BREAKERS[ri].current > 0) {
-                    BREAKERS[ri].current--;
-                    addAlert('Recovery', 'info', BREAKERS[ri].name + ' auto-reset to ' + BREAKERS[ri].current + '/' + BREAKERS[ri].threshold, 'Resume');
-                }
-            }
-
-            renderBreakers();
-        }
-
         renderBreakers();
         renderAlertLog();
-        setInterval(simulateCycle, 6000);
+        setInterval(async function() {
+            var live = await fetchLiveCircuitBreakers();
+            if (live) {
+                _cbLiveActive = true;
+                applyLiveDrawdown();
+                applyLiveCBData();
+                renderBreakers();
+            } else {
+                _cbLiveActive = false;
+                var statusEl = document.getElementById('cbStatus');
+                if (statusEl) {
+                    statusEl.textContent = 'Waiting for circuit breaker data...';
+                    statusEl.className = 'text-dim';
+                }
+            }
+        }, 6000);
     })();
     </script>
 
@@ -2072,214 +2003,10 @@
     // === 7. ML SIGNAL CORRELATION MATRIX — Brushable Scatterplot ===
     (function() {
         const container = document.getElementById('scatterMatrix');
-        const traits = ['Momentum', 'Mean Reversion', 'Volatility', 'Sentiment'];
-        const n = traits.length;
-        const POOL = 60;
-
-        const REGIME_BASES = {
-            0: [55, 65, 30, 50],
-            1: [82, 35, 45, 72],
-            2: [48, 58, 62, 42],
-            3: [30, 72, 78, 28],
-            4: [15, 45, 95, 18],
-        };
-
-        const CORR = {
-            0: [[0,3,0.4],[1,2,0.2]],
-            1: [[0,3,0.6],[2,1,-0.4],[0,2,0.3]],
-            2: [[2,3,-0.5],[0,1,0.4],[1,3,-0.3]],
-            3: [[2,0,-0.6],[1,3,0.4],[0,3,-0.3]],
-            4: [[2,0,-0.7],[2,3,-0.5],[1,0,0.3]],
-        };
-
-        // Rolling buffer — persists between ticks
-        let buffer = [];
-        let prevRegime = -1;
-
-        function seedBuffer() {
-            buffer = [];
-            cxSeed(1337 + currentRegime.state * 7919);
-            const regime = currentRegime.state;
-            const base = REGIME_BASES[regime] || REGIME_BASES[0];
-            const corrs = CORR[regime] || [];
-            for (let s = 0; s < POOL; s++) {
-                const shared = (cxRandom() - 0.5) * 0.5;
-                const raw = traits.map((_, i) => base[i] + (cxRandom() - 0.5) * 28 + shared * 12);
-                corrs.forEach(([a, b, str]) => { raw[b] += (raw[a] - base[a]) * str; });
-                const row = { regime };
-                traits.forEach((t, i) => { row[t] = Math.max(0, Math.min(100, raw[i])); });
-                buffer.push(row);
-            }
-        }
-
-        var _scatterTick = 0;
-        function evolveBuffer() {
-            _scatterTick++;
-            const regime = currentRegime.state;
-            const base = REGIME_BASES[regime] || REGIME_BASES[0];
-            const corrs = CORR[regime] || [];
-            const drift = 2.5;
-            const replace = 6;
-
-            buffer.forEach(function(row, ri) {
-                traits.forEach((t, i) => {
-                    const pull = (base[i] - row[t]) * 0.04;
-                    var wave = Math.sin(_scatterTick * 0.4 + ri * 0.7 + i * 1.3) * 0.5;
-                    row[t] = Math.max(0, Math.min(100, row[t] + pull + wave * drift));
-                });
-                corrs.forEach(([a, b, str]) => {
-                    const ta = traits[a], tb = traits[b];
-                    row[tb] += (row[ta] - base[a]) * str * 0.08;
-                    row[tb] = Math.max(0, Math.min(100, row[tb]));
-                });
-            });
-
-            for (let r = 0; r < replace; r++) {
-                cxSeed(cxHash(_scatterTick * 100 + r));
-                const idx = Math.floor(cxRandom() * POOL);
-                const shared = (cxRandom() - 0.5) * 0.5;
-                const raw = traits.map((_, i) => base[i] + (cxRandom() - 0.5) * 28 + shared * 12);
-                corrs.forEach(([a, b, str]) => { raw[b] += (raw[a] - base[a]) * str; });
-                const row = { regime };
-                traits.forEach((t, i) => { row[t] = Math.max(0, Math.min(100, raw[i])); });
-                buffer[idx] = row;
-            }
-        }
-
-        let svgRoot = null;
-        let scales = {};
-
-        function buildScaffold() {
-            container.innerHTML = '';
-            const cw = container.clientWidth || 928;
-            const cellSize = Math.floor((cw - 80) / n);
-            const cellPad = Math.max(16, cellSize * 0.12);
-            const size = cellSize * n;
-            const padding = 40;
-
-            const x = {}, y = {};
-            traits.forEach(t => {
-                x[t] = d3.scaleLinear().domain([0, 100]).range([cellPad / 2, cellSize - cellPad / 2]);
-                y[t] = d3.scaleLinear().domain([0, 100]).range([cellSize - cellPad / 2, cellPad / 2]);
-            });
-            scales = { x, y, cellSize, cellPad, size, padding };
-
-            const svg = d3.select(container).append('svg')
-                .attr('width', size + padding * 2)
-                .attr('height', size + padding * 2)
-                .attr('viewBox', [0, 0, size + padding * 2, size + padding * 2])
-                .attr('style', 'max-width: 100%; height: auto;')
-              .append('g')
-                .attr('transform', 'translate(' + padding + ',' + padding + ')');
-            svgRoot = svg;
-
-            const dotR = Math.max(2, cellSize * 0.018);
-            let brushCell;
-
-            const cell = svg.append('g')
-              .selectAll('g')
-              .data(d3.cross(d3.range(n), d3.range(n)))
-              .join('g')
-                .attr('class', 'cell')
-                .attr('transform', ([i, j]) => 'translate(' + (i * cellSize) + ',' + (j * cellSize) + ')');
-
-            cell.append('rect').attr('class', 'frame')
-                .attr('x', cellPad / 2).attr('y', cellPad / 2)
-                .attr('width', cellSize - cellPad).attr('height', cellSize - cellPad);
-
-            cell.each(function([i, j]) {
-                if (i === j) return;
-                d3.select(this).selectAll('circle')
-                  .data(buffer).join('circle')
-                    .attr('cx', d => x[traits[i]](d[traits[i]]))
-                    .attr('cy', d => y[traits[j]](d[traits[j]]))
-                    .attr('r', dotR).attr('fill', '#080808').attr('opacity', 0.7);
-            });
-
-            cell.filter(([i, j]) => i === j).append('text')
-                .attr('x', cellSize / 2).attr('y', cellSize / 2)
-                .attr('text-anchor', 'middle').attr('dominant-baseline', 'central')
-                .attr('font-size', Math.max(10, cellSize * 0.07) + 'px')
-                .attr('font-weight', '700').attr('fill', 'var(--fg)')
-                .text(([i]) => traits[i]);
-
-            const tc = cellSize > 180 ? 5 : 4;
-            traits.forEach((t, i) => {
-                svg.append('g').attr('transform', 'translate(' + (i * cellSize) + ',' + (n * cellSize) + ')')
-                    .call(d3.axisBottom(x[t]).ticks(tc).tickFormat(d3.format('d')))
-                    .selectAll('text').attr('font-size', '8px').attr('fill', 'var(--dim)');
-                svg.append('g').attr('transform', 'translate(0,' + (i * cellSize) + ')')
-                    .call(d3.axisLeft(y[t]).ticks(tc).tickFormat(d3.format('d')))
-                    .selectAll('text').attr('font-size', '8px').attr('fill', 'var(--dim)');
-            });
-
-            // Regime label
-            svg.append('text').attr('class', 'regime-label')
-                .attr('x', size).attr('y', -12).attr('text-anchor', 'end')
-                .attr('font-size', '9px').attr('font-weight', '600');
-
-            // Brush
-            const brush = d3.brush()
-                .extent([[cellPad / 2, cellPad / 2], [cellSize - cellPad / 2, cellSize - cellPad / 2]])
-                .on('start', function(event) {
-                    if (brushCell !== this) { d3.select(brushCell).call(brush.move, null); brushCell = this; }
-                })
-                .on('brush', function(event, [ci, cj]) {
-                    if (!event.selection) return;
-                    const [[x0, y0], [x1, y1]] = event.selection;
-                    const sx = x[traits[ci]], sy = y[traits[cj]];
-                    svgRoot.selectAll('circle').classed('hidden', d => {
-                        return sx(d[traits[ci]]) < x0 || sx(d[traits[ci]]) > x1 || sy(d[traits[cj]]) < y0 || sy(d[traits[cj]]) > y1;
-                    });
-                })
-                .on('end', function(event) {
-                    if (!event.selection) svgRoot.selectAll('circle').classed('hidden', false);
-                });
-            cell.filter(([i, j]) => i !== j).call(brush);
-
-            updateDots();
-        }
-
-        function updateDots() {
-            if (!svgRoot) return;
-            const { x, y, cellSize } = scales;
-            const dotR = Math.max(2, cellSize * 0.018);
-
-            svgRoot.selectAll('.cell').each(function([i, j]) {
-                if (i === j) return;
-                const tx = traits[i], ty = traits[j];
-                d3.select(this).selectAll('circle')
-                  .data(buffer)
-                  .join('circle')
-                  .transition().duration(800).ease(d3.easeCubicOut)
-                    .attr('cx', d => x[tx](d[tx]))
-                    .attr('cy', d => y[ty](d[ty]))
-                    .attr('r', dotR);
-            });
-
-            const regName = RG_STATES[currentRegime.state] || '—';
-            svgRoot.select('.regime-label')
-                .attr('fill', RG_HEX[currentRegime.state] || 'var(--dim)')
-                .text('Regime: ' + regName);
-        }
-
-        seedBuffer();
-        buildScaffold();
-
-        // Fast tick: evolve + transition dots every 2.5s
-        setInterval(() => {
-            evolveBuffer();
-            updateDots();
-        }, 2500);
-
-        // Full rebuild on regime change
-        setInterval(() => {
-            if (currentRegime.state !== prevRegime) {
-                prevRegime = currentRegime.state;
-                seedBuffer();
-                buildScaffold();
-            }
-        }, 1500);
+        container.innerHTML = '<div style="padding:2rem 1rem;text-align:center;color:var(--dim);font-size:0.7rem;line-height:1.8">' +
+            '<div style="font-size:1.2rem;margin-bottom:0.5rem">◇</div>' +
+            'Insufficient data — collecting signal correlation samples<br>' +
+            '<span style="font-size:0.6rem">Requires ≥ 50 signal observations across 4 dimensions to render matrix</span></div>';
     })();
     </script>
 
@@ -2287,112 +2014,10 @@
     // === 8. INTER-AGENT COMMUNICATION NETWORK — Ridgeline Plot ===
     (function() {
         const container = document.getElementById('ridgelineChart');
-        const overlap = 7;
-        const width = container.clientWidth || 928;
-        const marginTop = 30;
-        const marginRight = 20;
-        const marginBottom = 30;
-        const marginLeft = 120;
-        const bins = 96; // 24h in 15-min intervals
-
-        // Activity profiles per agent: [peakHour (0-23), baseActivity, peakMultiplier]
-        const ACTIVITY = {
-            'Technical Analyst':   { peak: 14, base: 30, mult: 3.5 },
-            'On-Chain Analyst':    { peak: 10, base: 40, mult: 2.8 },
-            'Sentiment Analyst':   { peak: 16, base: 20, mult: 4.0 },
-            'Macro Analyst':       { peak: 9,  base: 15, mult: 3.0 },
-            'Protocol Analyst':    { peak: 12, base: 25, mult: 2.5 },
-            'Risk Researcher':     { peak: 15, base: 35, mult: 3.2 },
-            'Trade Executor':      { peak: 13, base: 50, mult: 4.5 },
-            'Risk Manager':        { peak: 11, base: 45, mult: 3.0 },
-            'Portfolio Optimizer': { peak: 8,  base: 35, mult: 2.8 },
-            'Guardian':            { peak: 17, base: 55, mult: 2.0 },
-        };
-
-        function generateTimeSeries() {
-            const now = new Date();
-            const startHour = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0);
-            const dates = Array.from({ length: bins }, (_, i) => new Date(+startHour + i * 15 * 60000));
-
-            return AGENTS.map(function(a, ai) {
-                const prof = ACTIVITY[a.fullName];
-                const values = dates.map(function(d, i) {
-                    const hour = i / 4;
-                    const dist = Math.min(Math.abs(hour - prof.peak), 24 - Math.abs(hour - prof.peak));
-                    const gaussian = Math.exp(-0.5 * (dist / 3) * (dist / 3));
-                    var noise = Math.sin(i * 0.7 + ai * 2.3) * 0.2 * prof.base;
-                    return prof.base + prof.base * (prof.mult - 1) * gaussian + noise;
-                });
-                return { name: a.fullName, values };
-            });
-        }
-
-        function renderRidgeline() {
-            container.innerHTML = '';
-            const series = generateTimeSeries();
-            const height = series.length * 17;
-
-            const now = new Date();
-            const startHour = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0);
-            const dates = Array.from({ length: bins }, (_, i) => new Date(+startHour + i * 15 * 60000));
-
-            const x = d3.scaleTime()
-                .domain(d3.extent(dates))
-                .range([marginLeft, width - marginRight]);
-
-            const y = d3.scalePoint()
-                .domain(series.map(d => d.name))
-                .range([marginTop, height - marginBottom]);
-
-            const z = d3.scaleLinear()
-                .domain([0, d3.max(series, d => d3.max(d.values))]).nice()
-                .range([0, -overlap * y.step()]);
-
-            const area = d3.area()
-                .curve(d3.curveBasis)
-                .defined(d => !isNaN(d))
-                .x((d, i) => x(dates[i]))
-                .y0(0)
-                .y1(d => z(d));
-
-            const line = area.lineY1();
-
-            const svg = d3.select(container).append('svg')
-                .attr('width', width)
-                .attr('height', height)
-                .attr('viewBox', [0, 0, width, height])
-                .attr('style', 'max-width: 100%; height: auto; font: 9px var(--font-mono);');
-
-            svg.append('g')
-                .attr('transform', 'translate(0,' + (height - marginBottom) + ')')
-                .call(d3.axisBottom(x).ticks(width / 100).tickFormat(d3.timeFormat('%H:%M')).tickSizeOuter(0))
-                .selectAll('text').attr('fill', 'var(--dim)');
-
-            svg.append('g')
-                .attr('transform', 'translate(' + marginLeft + ',0)')
-                .call(d3.axisLeft(y).tickSize(0).tickPadding(4))
-                .call(g => g.select('.domain').remove())
-                .selectAll('text').attr('font-size', '9px').attr('font-weight', '600').attr('fill', 'var(--fg)');
-
-            const group = svg.append('g')
-              .selectAll('g')
-              .data(series)
-              .join('g')
-                .attr('transform', d => 'translate(0,' + (y(d.name) + 1) + ')');
-
-            group.append('path')
-                .attr('fill', '#ddd')
-                .attr('d', d => area(d.values));
-
-            group.append('path')
-                .attr('fill', 'none')
-                .attr('stroke', '#080808')
-                .attr('stroke-width', 1)
-                .attr('d', d => line(d.values));
-        }
-
-        renderRidgeline();
-        setInterval(renderRidgeline, 12000);
+        container.innerHTML = '<div style="padding:2rem 1rem;text-align:center;color:var(--dim);font-size:0.7rem;line-height:1.8">' +
+            '<div style="font-size:1.2rem;margin-bottom:0.5rem">◇</div>' +
+            'Insufficient data — collecting inter-agent message logs<br>' +
+            '<span style="font-size:0.6rem">Requires 24h of agent communication data (96 intervals × 10 agents) to render ridgeline</span></div>';
     })();
     </script>
 
@@ -2511,158 +2136,10 @@
     // === 10. CONFIDENCE THRESHOLDS SCATTER ===
     (function() {
         const container = document.getElementById('ctChart');
-        const AGENTS = [
-            'Momentum', 'Risk Mgr', 'Mean Rev', 'Sentiment', 'Arbitrage',
-            'Volatility', 'Trend', 'Liquidity', 'Correlation', 'Execution'
-        ];
-        const N = 8000;
-
-        const CLUSTERS = [
-            { cx: 0.7, cy: 5, spread: 0.25 },
-            { cx: 1.2, cy: 8, spread: 0.3 },
-            { cx: 0.4, cy: 3, spread: 0.2 },
-            { cx: 1.5, cy: 12, spread: 0.35 },
-            { cx: 0.9, cy: 7, spread: 0.15 },
-            { cx: 1.8, cy: 15, spread: 0.4 },
-            { cx: 0.3, cy: 2, spread: 0.18 },
-            { cx: 1.1, cy: 9, spread: 0.28 },
-            { cx: 0.6, cy: 4, spread: 0.22 },
-            { cx: 1.4, cy: 11, spread: 0.32 },
-        ];
-
-        function valToColor(signalStr) {
-            const t = Math.max(0, Math.min(1, signalStr / 2.0));
-            const g = Math.round(180 - t * 160);
-            return 'rgb(' + g + ',' + g + ',' + g + ')';
-        }
-
-        function generateData() {
-            cxSeed(9973);
-            const data = [];
-            for (let i = 0; i < N; i++) {
-                const agentIdx = Math.floor(cxRandom() * AGENTS.length);
-                const cl = CLUSTERS[agentIdx];
-                const angle = cxRandom() * Math.PI * 2;
-                var logVal = cxRandom();
-                if (logVal <= 0) logVal = 0.001;
-                const r = cl.spread * Math.sqrt(-2 * Math.log(logVal));
-                const sx = cl.cx + Math.cos(angle) * r * 0.5;
-                const sy = cl.cy + Math.sin(angle) * r * 4;
-                data.push({
-                    signal: Math.max(-0.2, Math.min(2.1, sx)),
-                    magnitude: Math.max(-1, Math.min(18, sy)),
-                    agent: AGENTS[agentIdx]
-                });
-            }
-            for (let i = 0; i < 2000; i++) {
-                const t = cxRandom();
-                const sx = 0.1 + t * 1.8 + (cxRandom() - 0.5) * 0.15;
-                const sy = 1 + t * 15 + (cxRandom() - 0.5) * 2;
-                data.push({
-                    signal: Math.max(-0.2, Math.min(2.1, sx)),
-                    magnitude: Math.max(-1, Math.min(18, sy)),
-                    agent: AGENTS[Math.floor(cxRandom() * AGENTS.length)]
-                });
-            }
-            return data;
-        }
-
-        function renderCTScatter() {
-            container.innerHTML = '';
-            const data = generateData();
-
-            const cw = container.clientWidth || 928;
-            const width = cw;
-            const height = Math.round(width * 0.6);
-            const marginTop = 48;
-            const marginRight = 56;
-            const marginBottom = 52;
-            const marginLeft = 56;
-
-            const x = d3.scaleLinear().domain([-0.2, 2.1]).range([marginLeft, width - marginRight]);
-            const y = d3.scaleLinear().domain([-1, 18]).range([marginTop, height - marginBottom]);
-
-            const svg = d3.select(container).append('svg')
-                .attr('width', width)
-                .attr('height', height)
-                .attr('viewBox', [0, 0, width, height])
-                .attr('style', 'max-width: 100%; height: auto; display: block; background: var(--bg);')
-                .attr('font-family', "'Alliance No.2', sans-serif")
-                .attr('font-size', 10);
-
-            svg.append('g').selectAll('rect')
-              .data(data).join('rect')
-                .attr('x', d => x(d.signal))
-                .attr('y', d => y(d.magnitude))
-                .attr('fill', d => valToColor(d.signal))
-                .attr('width', 1.5)
-                .attr('height', 1.5);
-
-            // Left axis
-            svg.append('g')
-                .attr('transform', 'translate(' + marginLeft + ',0)')
-                .call(d3.axisLeft(d3.scaleLinear().domain([18, -1]).range([marginTop, height - marginBottom])).ticks(8))
-                .call(g => g.select('.domain').remove())
-                .selectAll('text').attr('fill', 'var(--dim)').attr('font-size', '8px');
-
-            // Right axis
-            svg.append('g')
-                .attr('transform', 'translate(' + (width - marginRight) + ',0)')
-                .call(d3.axisRight(y).ticks(8).tickFormat(d => d3.format('.0f')(d) + '%'))
-                .call(g => g.select('.domain').remove())
-                .selectAll('text').attr('fill', 'var(--dim)').attr('font-size', '8px');
-
-            // Bottom axis
-            svg.append('g')
-                .attr('transform', 'translate(0,' + (height - marginBottom) + ')')
-                .call(d3.axisBottom(x).ticks(8).tickFormat(d3.format('+.1f')))
-                .call(g => g.select('.domain').remove())
-                .selectAll('text').attr('fill', 'var(--dim)').attr('font-size', '8px');
-
-            // Top axis
-            svg.append('g')
-                .attr('transform', 'translate(0,' + marginTop + ')')
-                .call(d3.axisTop(x).ticks(6).tickFormat(d => Math.round(d * 50) + '%'))
-                .call(g => g.select('.domain').remove())
-                .selectAll('text').attr('fill', 'var(--dim)').attr('font-size', '8px');
-
-            // Left label
-            svg.append('text')
-                .attr('text-anchor', 'middle').attr('font-size', '9px')
-                .attr('transform', 'translate(' + 12 + ',' + ((marginTop + height - marginBottom) / 2) + ') rotate(-90)')
-                .call(t => t.append('tspan').attr('fill', 'var(--dim)').text('← lower '))
-                .call(t => t.append('tspan').attr('font-weight', '700').attr('fill', 'var(--fg)').text(' Confidence Level '))
-                .call(t => t.append('tspan').attr('fill', 'var(--dim)').text(' higher →'));
-
-            // Right label
-            svg.append('text')
-                .attr('text-anchor', 'middle').attr('font-size', '9px')
-                .attr('transform', 'translate(' + (width - 12) + ',' + ((marginTop + height - marginBottom) / 2) + ') rotate(90)')
-                .call(t => t.append('tspan').attr('fill', 'var(--dim)').text('← lower '))
-                .call(t => t.append('tspan').attr('font-weight', '700').attr('fill', 'var(--fg)').text(' Threshold % '))
-                .call(t => t.append('tspan').attr('fill', 'var(--dim)').text(' higher →'));
-
-            // Top label
-            svg.append('text')
-                .attr('x', (marginLeft + width - marginRight) / 2)
-                .attr('y', 12)
-                .attr('text-anchor', 'middle').attr('font-size', '9px')
-                .call(t => t.append('tspan').attr('fill', 'var(--dim)').text('← conservative '))
-                .call(t => t.append('tspan').attr('font-weight', '700').attr('fill', 'var(--fg)').text(' Agent Confidence '))
-                .call(t => t.append('tspan').attr('fill', 'var(--dim)').text(' aggressive →'));
-
-            // Bottom label
-            svg.append('text')
-                .attr('x', (marginLeft + width - marginRight) / 2)
-                .attr('y', height - 8)
-                .attr('text-anchor', 'middle').attr('font-size', '9px')
-                .call(t => t.append('tspan').attr('fill', 'var(--dim)').text('← weak '))
-                .call(t => t.append('tspan').attr('font-weight', '700').attr('fill', 'var(--fg)').text(' Signal Strength '))
-                .call(t => t.append('tspan').attr('fill', 'var(--dim)').text(' strong →'));
-        }
-
-        renderCTScatter();
-        setInterval(renderCTScatter, 8000);
+        container.innerHTML = '<div style="padding:2rem 1rem;text-align:center;color:var(--dim);font-size:0.7rem;line-height:1.8">' +
+            '<div style="font-size:1.2rem;margin-bottom:0.5rem">◇</div>' +
+            'Insufficient data — collecting confidence threshold observations<br>' +
+            '<span style="font-size:0.6rem">Requires ≥ 1,000 agent signal events to render threshold scatter (10 agents × signal strength × magnitude)</span></div>';
     })();
     </script>
 
@@ -2671,149 +2148,10 @@
     (function() {
         const container = document.getElementById('hzChart');
         if (!container) return;
-
-        const LABELS = [
-            'Momentum', 'Risk Mgr', 'Mean Rev', 'Sentiment', 'Arbitrage',
-            'Volatility', 'Trend', 'Liquidity', 'Correlation', 'Execution'
-        ];
-
-        const bands = 7;
-        const step = 42;
-        const marginTop = 30;
-        const marginBottom = 0;
-        const marginLeft = 10;
-        const marginRight = 10;
-        const n = LABELS.length;
-        const period = 250;
-
-        // d3.schemeGreens color bands
-        const scheme = {
-            3: ['#e5f5e0','#a1d99b','#31a354'],
-            4: ['#edf8e9','#bae4b3','#74c476','#238b45'],
-            5: ['#edf8e9','#bae4b3','#74c476','#31a354','#006d2c'],
-            6: ['#edf8e9','#c7e9c0','#a1d99b','#74c476','#31a354','#006d2c'],
-            7: ['#edf8e9','#c7e9c0','#a1d99b','#74c476','#41ab5d','#238b45','#005a32'],
-            8: ['#f7fcf5','#e5f5e0','#c7e9c0','#a1d99b','#74c476','#41ab5d','#238b45','#005a32'],
-            9: ['#f7fcf5','#e5f5e0','#c7e9c0','#a1d99b','#74c476','#41ab5d','#238b45','#006d2c','#00441b']
-        };
-        const color = i => scheme[Math.max(3, bands)][i + Math.max(0, 3 - bands)];
-
-        var _walkTick = 0;
-        function walk(v) {
-            _walkTick++;
-            var drift = Math.sin(_walkTick * 0.37) * 0.025;
-            return Math.max(0, Math.min(1, v + drift));
-        }
-
-        function buildChart() {
-            container.innerHTML = '';
-            const w = container.clientWidth || 400;
-            const m = w;
-            const height = n * (step + 1) + marginTop + marginBottom;
-
-            // Initialize data
-            const data = new Array(n);
-            for (let i = 0; i < n; i++) {
-                const d = data[i] = new Float64Array(m);
-                for (let j = 0, v = 0; j < m; j++) {
-                    d[j] = v = walk(v);
-                }
-            }
-
-            const x = d3.scaleTime().range([0, w]);
-            const y = d3.scaleLinear().rangeRound([0, -bands * step]);
-
-            // Wrapper div
-            const div = d3.select(container).append('div')
-                .style('position', 'relative');
-
-            // Canvas per agent row
-            const canvases = div.selectAll('canvas')
-                .data(data)
-                .enter().append('canvas')
-                    .attr('width', w)
-                    .attr('height', step)
-                    .style('position', 'absolute')
-                    .style('image-rendering', 'pixelated')
-                    .style('top', (d, i) => (i * (step + 1) + marginTop) + 'px')
-                    .property('context', function() { return this.getContext('2d'); })
-                    .each(horizon);
-
-            // SVG overlay for axes + labels + rule
-            const svg = div.append('svg')
-                .attr('width', w)
-                .attr('height', height)
-                .style('position', 'relative')
-                .attr('font-family', "'Alliance No.2', sans-serif")
-                .attr('font-size', '10px');
-
-            const gX = svg.append('g')
-                .attr('transform', 'translate(0,' + marginTop + ')');
-
-            // Agent name labels
-            svg.append('g')
-                .selectAll('text')
-                .data(LABELS)
-                .join('text')
-                    .attr('x', 4)
-                    .attr('y', (d, i) => (i + 0.5) * (step + 1) + marginTop)
-                    .attr('dy', '0.35em')
-                    .attr('fill', 'var(--fg)')
-                    .attr('font-size', '8px')
-                    .attr('font-weight', '600')
-                    .text(d => d);
-
-            // Mouse-following rule line
-            const rule = svg.append('line')
-                .attr('stroke', 'var(--fg)')
-                .attr('stroke-opacity', 0.3)
-                .attr('y1', marginTop - 6)
-                .attr('y2', height - marginBottom - 1)
-                .attr('x1', 0.5)
-                .attr('x2', 0.5);
-
-            svg.on('mousemove', function(event) {
-                const mx = d3.pointer(event, this)[0] + 0.5;
-                rule.attr('x1', mx).attr('x2', mx);
-            });
-
-            function horizon(d) {
-                const ctx = this.getContext('2d');
-                const k = d.length;
-                if (k < w) ctx.drawImage(this, k, 0, w - k, step, 0, 0, w - k, step);
-                ctx.fillStyle = '#fff';
-                ctx.fillRect(w - k, 0, k, step);
-                for (let i = 0; i < bands; i++) {
-                    ctx.save();
-                    ctx.translate(w - k, (i + 1) * step);
-                    ctx.fillStyle = color(i);
-                    for (let j = 0; j < k; j++) {
-                        ctx.fillRect(j, y(d[j]), 1, -y(d[j]));
-                    }
-                    ctx.restore();
-                }
-            }
-
-            // Animation loop
-            const tail = data.map(d => d.subarray(m - 1, m));
-            const animId = setInterval(() => {
-                const then = new Date(Math.ceil((Date.now() + 1) / period) * period);
-                for (const d of data) {
-                    d.copyWithin(0, 1, m);
-                    d[m - 1] = walk(d[m - 1]);
-                }
-                canvases.data(tail).each(horizon);
-                x.domain([then - period * w, then]);
-                gX.call(d3.axisTop(x).ticks(w / 80).tickSizeOuter(0))
-                    .call(g => g.selectAll('.tick').filter(d => x(d) < marginLeft || x(d) >= w - marginRight).remove())
-                    .call(g => g.select('.domain').remove())
-                    .selectAll('text').attr('fill', 'var(--dim)').attr('font-size', '8px');
-            }, period);
-
-            container._animId = animId;
-        }
-
-        buildChart();
+        container.innerHTML = '<div style="padding:2rem 1rem;text-align:center;color:var(--dim);font-size:0.7rem;line-height:1.8">' +
+            '<div style="font-size:1.2rem;margin-bottom:0.5rem">◇</div>' +
+            'Insufficient data — collecting agent signal horizon data<br>' +
+            '<span style="font-size:0.6rem">Requires continuous signal stream from 10 agents to render horizon bands</span></div>';
     })();
     </script>
 
@@ -3351,7 +2689,7 @@
     console.log('CORTEX Cerebral initialized');
     console.log('Regime Detection: Active (live API preferred, CoinGecko HMM fallback)');
     console.log('Decision Pipeline: Cycling');
-    console.log('Debate Theater: Live API + built-in scenarios fallback');
+    console.log('Debate Theater: Live API only');
     </script>
     <script src="js/ticker.js"></script>
     <script src="js/wallet.js"></script>
