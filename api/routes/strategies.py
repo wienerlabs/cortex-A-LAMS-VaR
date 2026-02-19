@@ -5,10 +5,19 @@ import logging
 import time
 
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
 router = APIRouter(tags=["strategies"])
 
 logger = logging.getLogger(__name__)
+
+# In-memory trade mode store (resets on restart; Redis persistence is a future improvement)
+_TRADE_MODE: str = "autonomous"
+VALID_TRADE_MODES = {"autonomous", "semi-auto", "manual"}
+
+
+class TradeModeUpdate(BaseModel):
+    mode: str
 
 
 @router.get("/strategies/config", summary="Get strategy configuration")
@@ -53,13 +62,8 @@ def get_strategy_config():
 
 
 
-@router.put("/strategies/{name}/toggle", summary="Toggle strategy enabled state")
-def toggle_strategy(name: str):
-    """Enable or disable a strategy by its key name.
-
-    Flips the 'enabled' flag and updates 'status' accordingly.
-    The change is in-memory only (resets on restart).
-    """
+def _do_toggle(name: str) -> dict:
+    """Shared logic: flip a strategy's enabled flag and return the updated record."""
     from cortex.config import STRATEGY_CONFIG
 
     for strat in STRATEGY_CONFIG:
@@ -75,3 +79,48 @@ def toggle_strategy(name: str):
             }
 
     raise HTTPException(status_code=404, detail=f"Strategy '{name}' not found")
+
+
+@router.put("/strategies/{name}/toggle", summary="Toggle strategy enabled state (PUT)")
+def toggle_strategy_put(name: str):
+    """Enable or disable a strategy by its key name (PUT variant).
+
+    Flips the 'enabled' flag and updates 'status' accordingly.
+    The change is in-memory only (resets on restart).
+    """
+    return _do_toggle(name)
+
+
+@router.post("/strategies/{name}/toggle", summary="Toggle strategy enabled state (POST)")
+def toggle_strategy_post(name: str):
+    """Enable or disable a strategy by its key name (POST variant for browser clients).
+
+    Identical behaviour to the PUT variant; provided so browser fetch calls
+    (which use POST for mutations) work without requiring a CORS preflight for PUT.
+    The change is in-memory only (resets on restart).
+    """
+    return _do_toggle(name)
+
+
+# ── Trade Mode ───────────────────────────────────────────────────────────────
+
+
+@router.get("/strategies/trade-mode", summary="Get current trade mode")
+def get_trade_mode():
+    """Return the current trade mode (autonomous | semi-auto | manual)."""
+    return {"mode": _TRADE_MODE, "timestamp": time.time()}
+
+
+@router.post("/strategies/trade-mode", summary="Set trade mode")
+def set_trade_mode(body: TradeModeUpdate):
+    """Set the trade mode.  Accepted values: autonomous, semi-auto, manual."""
+    global _TRADE_MODE
+    mode = body.mode.lower().strip()
+    if mode not in VALID_TRADE_MODES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid mode '{mode}'. Must be one of: {', '.join(sorted(VALID_TRADE_MODES))}",
+        )
+    _TRADE_MODE = mode
+    logger.info("Trade mode changed to %s", mode)
+    return {"mode": _TRADE_MODE, "timestamp": time.time()}
