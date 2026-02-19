@@ -1240,7 +1240,8 @@
             position: relative;
         }
 
-        .hyperparam-section .param-grid-widget {
+        .hyperparam-section .param-grid-widget,
+        .hyperparam-section .wave-selector {
             opacity: 0.3;
             pointer-events: none;
         }
@@ -2320,6 +2321,7 @@
 
                 <!-- Hyperparameters Section -->
                 <div class="hyperparam-section">
+                    <div class="hyperparam-coming-soon">COMING SOON</div>
                     <div class="section-label-widget">
                         <span>Hyperparameters</span>
                         <div class="wave-selector">
@@ -2503,7 +2505,7 @@
             <div class="panel">
                 <div class="panel-header">
                     <span>Portfolio Overview</span>
-                    <button class="btn btn-sm" onclick="openVaultModal()" id="vaultDepositBtn" style="font-size:0.6rem;">Deposit / Withdraw</button>
+                    <button class="btn btn-sm" onclick="openVaultModal()" id="vaultDepositBtn" style="display:none;font-size:0.6rem;">Deposit / Withdraw</button>
                 </div>
 
                 <div class="portfolio-summary">
@@ -5633,10 +5635,10 @@
                 await conn.confirmTransaction(sig, 'confirmed');
 
                 setVmStatus('Deposit confirmed! TX: ' + sig.slice(0, 8) + '…' + sig.slice(-8), false);
+                if (typeof showToast === 'function') showToast('Deposit of ' + amtUsdc.toFixed(2) + ' USDC confirmed', 'success');
                 if (input) input.value = '';
                 document.getElementById('vmDepositPreview').style.display = 'none';
 
-                // Refresh vault data
                 await loadVaultData(mintAddress, walletState.address);
 
             } catch (err) {
@@ -5645,6 +5647,7 @@
                     msg = 'Transaction rejected by user.';
                 }
                 setVmStatus('Error: ' + msg, true);
+                if (typeof showToast === 'function') showToast('Deposit failed: ' + msg, 'critical');
                 console.error('[VaultUI] Deposit error:', err);
             } finally {
                 setVmBtnState('vmDepositBtn', false, 'Deposit');
@@ -5707,10 +5710,10 @@
                 await conn.confirmTransaction(sig, 'confirmed');
 
                 setVmStatus('Withdrawal confirmed! TX: ' + sig.slice(0, 8) + '…' + sig.slice(-8), false);
+                if (typeof showToast === 'function') showToast('Withdrawal of ' + sharesAmt.toFixed(2) + ' shares confirmed', 'success');
                 if (input) input.value = '';
                 document.getElementById('vmWithdrawPreview').style.display = 'none';
 
-                // Refresh vault data
                 await loadVaultData(mintAddress, walletState.address);
 
             } catch (err) {
@@ -5719,6 +5722,7 @@
                     msg = 'Transaction rejected by user.';
                 }
                 setVmStatus('Error: ' + msg, true);
+                if (typeof showToast === 'function') showToast('Withdrawal failed: ' + msg, 'critical');
                 console.error('[VaultUI] Withdraw error:', err);
             } finally {
                 setVmBtnState('vmWithdrawBtn', false, 'Withdraw');
@@ -5733,15 +5737,16 @@
         var _origSetWalletUI = window.setWalletUI;
         window.setWalletUI = function (state) {
             if (typeof _origSetWalletUI === 'function') _origSetWalletUI(state);
+            var depositBtn = document.getElementById('vaultDepositBtn');
             if (state && state.address) {
-                // Load vault data after wallet connects
+                if (depositBtn) depositBtn.style.display = '';
                 setTimeout(function () {
                     if (typeof VaultSDK !== 'undefined' && typeof solanaWeb3 !== 'undefined') {
                         loadVaultData(_currentMint, state.address);
                     }
                 }, 500);
             } else {
-                // Clear vault display on disconnect
+                if (depositBtn) depositBtn.style.display = 'none';
                 var card = document.getElementById('vaultPositionCard');
                 if (card) card.style.display = 'none';
             }
@@ -5752,10 +5757,11 @@
         // ---------------------------------------------------------------
 
         window.addEventListener('load', function () {
-            // Delay to let wallet restore + VaultSDK to load
             setTimeout(function () {
                 if (typeof VaultSDK === 'undefined' || typeof solanaWeb3 === 'undefined') return;
                 if (typeof walletState !== 'undefined' && walletState && walletState.address) {
+                    var depositBtn = document.getElementById('vaultDepositBtn');
+                    if (depositBtn) depositBtn.style.display = '';
                     loadVaultData(_currentMint, walletState.address);
                 }
             }, 1500);
