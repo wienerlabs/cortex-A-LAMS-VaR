@@ -4,184 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CORTEX | Market Data</title>
-    <style>
-        @font-face {
-            font-family: "Alliance No.1";
-            src: url("assets/fonts/Degarism Studio - Alliance No.1 Light.otf") format("opentype");
-            font-weight: 300; font-style: normal; font-display: swap;
-        }
-        @font-face {
-            font-family: "Alliance No.2";
-            src: url("assets/fonts/Degarism Studio - Alliance No.2 Light.otf") format("opentype");
-            font-weight: 300; font-style: normal; font-display: swap;
-        }
-        :root {
-            --bg: #ffffff;
-            --fg: #080808;
-            --dim: #222222;
-            --border: #000000;
-            --green: #00aa00;
-            --red: #cc0000;
-            --font-main: "Alliance No.1", sans-serif;
-            --font-mono: "Alliance No.2", sans-serif;
-        }
-
-        * { box-sizing: border-box; margin: 0; padding: 0; -webkit-font-smoothing: antialiased; }
-
-        body {
-            background-color: var(--bg);
-            color: var(--fg);
-            font-family: var(--font-mono);
-            font-size: 15px;
-            line-height: 1.4;
-            overflow-x: hidden;
-            width: 100vw;
-            min-height: 100vh;
-        }
-
-        .text-dim { color: var(--dim); }
-
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
-            border-left: 1px solid var(--border);
-            border-right: 1px solid var(--border);
-            min-height: 100vh;
-        }
-
-        header {
-            display: grid;
-            grid-template-columns: 1fr auto auto auto auto auto auto;
-            border-bottom: 1px solid var(--border);
-        }
-
-        .logo {
-            font-family: var(--font-main);
-            font-size: 1.5rem;
-            font-weight: bold;
-            display: flex;
-            align-items: center;
-            padding: 1rem;
-            gap: 8px;
-        }
-
-        .logo-img { height: 78px; width: auto; display: block; }
-        .logo span { font-size: 0.5em; font-family: var(--font-mono); color: var(--dim); }
-
-        .nav-item {
-            border-left: 1px solid var(--border);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 1rem 1.5rem;
-            text-transform: capitalize;
-            font-size: 0.7rem;
-            cursor: pointer;
-            transition: background 0.2s, color 0.2s;
-            text-decoration: none;
-            color: var(--fg);
-        }
-
-        .nav-item:hover, .nav-item.active { background: var(--fg); color: var(--bg); }
-
-        .section-header {
-            padding: 0.75rem 1rem;
-            border-bottom: 1px solid var(--border);
-            font-size: 0.7rem;
-            text-transform: capitalize;
-            background: #f5f5f5;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .market-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr 1fr;
-            border-bottom: 1px solid var(--border);
-        }
-
-        .market-grid > div { border-right: 1px solid var(--border); }
-        .market-grid > div:last-child { border-right: none; }
-
-        .widget-cell { padding: 0; overflow: hidden; }
-        .widget-cell-quotes { height: 550px; }
-
-        .chart-section { height: 700px; position: relative; border-bottom: 1px solid var(--border); }
-
-        .chart-section .tradingview-widget-container,
-        .chart-section .tradingview-widget-container__widget {
-            width: 100% !important;
-            height: 100% !important;
-        }
-
-        .heatmap-section { height: 600px; position: relative; }
-
-        .heatmap-section .tradingview-widget-container,
-        .heatmap-section .tradingview-widget-container__widget {
-            width: 100% !important;
-            height: 100% !important;
-        }
-
-        .summary-bar {
-            border-bottom: 1px solid var(--fg);
-            padding: 0;
-        }
-
-        .tradingview-widget-copyright { display: none !important; }
-
-        .widget-cell {
-            border: 1px solid var(--fg);
-        }
-
-        .widget-cell iframe,
-        .widget-cell div {
-            border-radius: 0 !important;
-        }
-
-        .widget-cell iframe {
-            border: 1px solid var(--fg) !important;
-            border-radius: 0 !important;
-        }
-
-        .tradingview-widget-container,
-        .tradingview-widget-container__widget {
-            border-radius: 0 !important;
-        }
-
-        .scanline {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: linear-gradient(to bottom, transparent, rgba(0,0,0,0.02), transparent);
-            pointer-events: none; animation: scanline 8s linear infinite; z-index: 100;
-        }
-        @keyframes scanline { 0% { transform: translateY(-100%); } 100% { transform: translateY(100vh); } }
-
-        footer { border-top: 1px solid var(--border); padding: 1rem; display: flex; justify-content: space-between; font-size: 0.6rem; text-transform: uppercase; color: var(--dim); }
-
-        @media (max-width: 960px) {
-            .market-grid { grid-template-columns: 1fr; }
-            header { grid-template-columns: 1fr auto; }
-        }
-
-        /* Wallet nav (injected by js/wallet.js) */
-        .wallet-connected { position: relative; }
-        .wallet-addr { font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: 0.5px; }
-        .wallet-dropdown { position: absolute; top: 100%; right: 0; background: var(--bg); border: 1px solid var(--border); min-width: 200px; z-index: 60; display: none; }
-        .wallet-dropdown.open { display: block; }
-        .wallet-dropdown-item { padding: 0.75rem 1rem; font-size: 0.7rem; text-transform: capitalize; cursor: pointer; transition: background 0.2s; display: flex; align-items: center; gap: 0.5rem; }
-        .wallet-dropdown-item:hover { background: #f0f0f0; }
-        .wallet-dropdown-item:not(:last-child) { border-bottom: 1px solid var(--border); }
-        .wallet-dropdown-item.disconnect { color: var(--red); }
-        .wallet-dropdown-item .dd-icon { font-size: 0.6rem; color: var(--dim); width: 14px; text-align: center; }
-        .wallet-dropdown-item.disconnect .dd-icon { color: var(--red); }
-        .ticker { overflow: hidden; white-space: nowrap; padding: 0.5rem 0; border-bottom: 1px solid var(--border); font-size: 0.7rem; color: var(--dim); background: #f5f5f5; }
-        .ticker-content { display: inline-block; animation: marquee 30s linear infinite; }
-        .ticker-item { display: inline-block; margin-right: 3rem; }
-        .ticker-item .price { color: var(--fg); margin-left: 0.5rem; }
-        .ticker-item .change.up { color: var(--green); }
-        .ticker-item .change.down { color: var(--red); }
-        @keyframes marquee { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
-    </style>
+    <link rel="stylesheet" href="css/base.css">
+    <link rel="stylesheet" href="css/components.css">
+    <link rel="stylesheet" href="css/market.css">
 </head>
 <body>
     <div class="scanline"></div>
@@ -323,6 +148,45 @@
             </div>
         </div>
 
+        <!-- Depth Chart + Order Book -->
+        <div class="section-header">
+            <span>Order Book Depth</span>
+            <span class="text-dim" id="obMeta">SOL/USDT · Loading...</span>
+        </div>
+        <div class="ob-grid">
+            <div id="depthChart" style="height:350px; border-right: 1px solid var(--border); padding: 1rem; position: relative;">
+                <svg id="depthSvg" width="100%" height="100%"></svg>
+            </div>
+            <div id="orderBookPanel" style="height:350px; overflow-y:auto;">
+                <div style="display:grid; grid-template-columns: 1fr 1fr; height:100%;">
+                    <div id="obBids" style="border-right:1px solid var(--border); overflow-y:auto;"></div>
+                    <div id="obAsks" style="overflow-y:auto;"></div>
+                </div>
+            </div>
+        </div>
+        <div class="ob-summary">
+            <div class="ob-summary-cell">
+                <div class="ob-summary-label">Best Bid</div>
+                <div class="ob-summary-value text-green" id="obBestBid">--</div>
+            </div>
+            <div class="ob-summary-cell">
+                <div class="ob-summary-label">Best Ask</div>
+                <div class="ob-summary-value text-red" id="obBestAsk">--</div>
+            </div>
+            <div class="ob-summary-cell">
+                <div class="ob-summary-label">Spread</div>
+                <div class="ob-summary-value" id="obSpread">--</div>
+            </div>
+            <div class="ob-summary-cell">
+                <div class="ob-summary-label">Bid Depth</div>
+                <div class="ob-summary-value text-green" id="obBidDepth">--</div>
+            </div>
+            <div class="ob-summary-cell">
+                <div class="ob-summary-label">Ask Depth</div>
+                <div class="ob-summary-value text-red" id="obAskDepth">--</div>
+            </div>
+        </div>
+
         <!-- Full-width Heatmap Section -->
         <div class="section-header">
             <span>Crypto Heatmap — Full View</span>
@@ -358,87 +222,11 @@
         </footer>
     </div>
 
-    <script>
-        // Override TradingView widget card styles (Shadow DOM + iframe injection)
-        const TV_FONT_CSS = `
-            @font-face {
-                font-family: "Alliance No.2";
-                src: url("assets/fonts/Degarism Studio - Alliance No.2 Light.otf") format("opentype");
-                font-weight: 300; font-style: normal;
-            }
-            * { font-family: "Alliance No.2", -apple-system, sans-serif !important; }
-        `;
-
-        const TV_OVERRIDE_CSS = `
-            * { border-radius: 0 !important; }
-            .card, .container, [class*="card"], [class*="Card"],
-            [class*="wrapper"], [class*="Wrapper"], [class*="block"], [class*="Block"],
-            div[class] { border-radius: 0 !important; }
-        `;
-
-        const TV_CARD_BORDER_CSS = `
-            * { border-radius: 0 !important; }
-            .card, [class*="card"], [class*="Card"] {
-                border: 1px solid #080808 !important;
-                border-radius: 0 !important;
-            }
-        `;
-
-        const ALL_CSS = TV_FONT_CSS + TV_OVERRIDE_CSS + TV_CARD_BORDER_CSS;
-
-        function injectStyleToShadow(root) {
-            if (!root) return;
-            const style = document.createElement('style');
-            style.textContent = ALL_CSS;
-            root.appendChild(style);
-
-            root.querySelectorAll('iframe').forEach(iframe => {
-                try {
-                    const doc = iframe.contentDocument || iframe.contentWindow.document;
-                    if (doc) {
-                        const s = doc.createElement('style');
-                        s.textContent = ALL_CSS;
-                        doc.head.appendChild(s);
-                    }
-                } catch(e) {}
-            });
-        }
-
-        function patchWidgets() {
-            document.querySelectorAll('iframe').forEach(iframe => {
-                try {
-                    const doc = iframe.contentDocument || iframe.contentWindow.document;
-                    if (doc && doc.head) {
-                        const existing = doc.querySelector('style[data-cortex]');
-                        if (!existing) {
-                            const s = doc.createElement('style');
-                            s.setAttribute('data-cortex', '1');
-                            s.textContent = ALL_CSS;
-                            doc.head.appendChild(s);
-                        }
-                    }
-                } catch(e) {}
-            });
-
-            document.querySelectorAll('.summary-bar iframe, .widget-cell iframe').forEach(iframe => {
-                iframe.style.borderRadius = '0';
-                iframe.style.border = '1px solid #080808';
-            });
-        }
-
-        // Run repeatedly as widgets load asynchronously
-        let patchCount = 0;
-        const patchInterval = setInterval(() => {
-            patchWidgets();
-            patchCount++;
-            if (patchCount > 30) clearInterval(patchInterval);
-        }, 500);
-    </script>
     <script src="js/config.js"></script>
     <script src="js/api.js"></script>
     <script src="js/ticker.js"></script>
     <script src="js/wallet.js"></script>
     <script src="js/toast.js"></script>
+    <script src="js/market-app.js"></script>
 </body>
 </html>
-

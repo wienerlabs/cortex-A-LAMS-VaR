@@ -1612,6 +1612,8 @@ class CcxtOrderBookResponse(BaseModel):
     spread_bps: float
     bid_depth: float
     ask_depth: float
+    bids: list[list[float]] = []
+    asks: list[list[float]] = []
     timestamp: datetime
 
 

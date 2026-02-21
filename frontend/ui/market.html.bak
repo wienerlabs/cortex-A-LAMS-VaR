@@ -1,0 +1,685 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CORTEX | Market Data</title>
+    <style>
+        @font-face {
+            font-family: "Alliance No.1";
+            src: url("assets/fonts/Degarism Studio - Alliance No.1 Light.otf") format("opentype");
+            font-weight: 300; font-style: normal; font-display: swap;
+        }
+        @font-face {
+            font-family: "Alliance No.2";
+            src: url("assets/fonts/Degarism Studio - Alliance No.2 Light.otf") format("opentype");
+            font-weight: 300; font-style: normal; font-display: swap;
+        }
+        :root {
+            --bg: #ffffff;
+            --fg: #080808;
+            --dim: #222222;
+            --border: #000000;
+            --green: #00aa00;
+            --red: #cc0000;
+            --font-main: "Alliance No.1", sans-serif;
+            --font-mono: "Alliance No.2", sans-serif;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; -webkit-font-smoothing: antialiased; }
+
+        body {
+            background-color: var(--bg);
+            color: var(--fg);
+            font-family: var(--font-mono);
+            font-size: 15px;
+            line-height: 1.4;
+            overflow-x: hidden;
+            width: 100vw;
+            min-height: 100vh;
+        }
+
+        .text-dim { color: var(--dim); }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            border-left: 1px solid var(--border);
+            border-right: 1px solid var(--border);
+            min-height: 100vh;
+        }
+
+        header {
+            display: grid;
+            grid-template-columns: 1fr auto auto auto auto auto auto;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .logo {
+            font-family: var(--font-main);
+            font-size: 1.5rem;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            padding: 1rem;
+            gap: 8px;
+        }
+
+        .logo-img { height: 78px; width: auto; display: block; }
+        .logo span { font-size: 0.5em; font-family: var(--font-mono); color: var(--dim); }
+
+        .nav-item {
+            border-left: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem 1.5rem;
+            text-transform: capitalize;
+            font-size: 0.7rem;
+            cursor: pointer;
+            transition: background 0.2s, color 0.2s;
+            text-decoration: none;
+            color: var(--fg);
+        }
+
+        .nav-item:hover, .nav-item.active { background: var(--fg); color: var(--bg); }
+
+        .section-header {
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid var(--border);
+            font-size: 0.7rem;
+            text-transform: capitalize;
+            background: #f5f5f5;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .market-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .market-grid > div { border-right: 1px solid var(--border); }
+        .market-grid > div:last-child { border-right: none; }
+
+        .widget-cell { padding: 0; overflow: hidden; }
+        .widget-cell-quotes { height: 550px; }
+
+        .chart-section { height: 700px; position: relative; border-bottom: 1px solid var(--border); }
+
+        .chart-section .tradingview-widget-container,
+        .chart-section .tradingview-widget-container__widget {
+            width: 100% !important;
+            height: 100% !important;
+        }
+
+        .heatmap-section { height: 600px; position: relative; }
+
+        .heatmap-section .tradingview-widget-container,
+        .heatmap-section .tradingview-widget-container__widget {
+            width: 100% !important;
+            height: 100% !important;
+        }
+
+        .summary-bar {
+            border-bottom: 1px solid var(--fg);
+            padding: 0;
+        }
+
+        .tradingview-widget-copyright { display: none !important; }
+
+        .widget-cell {
+            border: 1px solid var(--fg);
+        }
+
+        .widget-cell iframe,
+        .widget-cell div {
+            border-radius: 0 !important;
+        }
+
+        .widget-cell iframe {
+            border: 1px solid var(--fg) !important;
+            border-radius: 0 !important;
+        }
+
+        .tradingview-widget-container,
+        .tradingview-widget-container__widget {
+            border-radius: 0 !important;
+        }
+
+        .scanline {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: linear-gradient(to bottom, transparent, rgba(0,0,0,0.02), transparent);
+            pointer-events: none; animation: scanline 8s linear infinite; z-index: 100;
+        }
+        @keyframes scanline { 0% { transform: translateY(-100%); } 100% { transform: translateY(100vh); } }
+
+        footer { border-top: 1px solid var(--border); padding: 1rem; display: flex; justify-content: space-between; font-size: 0.6rem; text-transform: uppercase; color: var(--dim); }
+
+        @media (max-width: 960px) {
+            .market-grid { grid-template-columns: 1fr; }
+            header { grid-template-columns: 1fr auto; }
+            #depthChart { display: none; }
+        }
+
+        /* Wallet nav (injected by js/wallet.js) */
+        .wallet-connected { position: relative; }
+        .wallet-addr { font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: 0.5px; }
+        .wallet-dropdown { position: absolute; top: 100%; right: 0; background: var(--bg); border: 1px solid var(--border); min-width: 200px; z-index: 60; display: none; }
+        .wallet-dropdown.open { display: block; }
+        .wallet-dropdown-item { padding: 0.75rem 1rem; font-size: 0.7rem; text-transform: capitalize; cursor: pointer; transition: background 0.2s; display: flex; align-items: center; gap: 0.5rem; }
+        .wallet-dropdown-item:hover { background: #f0f0f0; }
+        .wallet-dropdown-item:not(:last-child) { border-bottom: 1px solid var(--border); }
+        .wallet-dropdown-item.disconnect { color: var(--red); }
+        .wallet-dropdown-item .dd-icon { font-size: 0.6rem; color: var(--dim); width: 14px; text-align: center; }
+        .wallet-dropdown-item.disconnect .dd-icon { color: var(--red); }
+        .ticker { overflow: hidden; white-space: nowrap; padding: 0.5rem 0; border-bottom: 1px solid var(--border); font-size: 0.7rem; color: var(--dim); background: #f5f5f5; }
+        .ticker-content { display: inline-block; animation: marquee 30s linear infinite; }
+        .ticker-item { display: inline-block; margin-right: 3rem; }
+        .ticker-item .price { color: var(--fg); margin-left: 0.5rem; }
+        .ticker-item .change.up { color: var(--green); }
+        .ticker-item .change.down { color: var(--red); }
+        @keyframes marquee { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
+    </style>
+</head>
+<body>
+    <div class="scanline"></div>
+    <div class="container">
+        <div class="ticker">
+            <div class="ticker-content" id="tickerContent">
+                <span class="ticker-item">Loading live prices...</span>
+            </div>
+        </div>
+        <header>
+            <div class="logo">
+                <img src="assets/logos/cortex-logo-dark.png" alt="CORTEX" class="logo-img">
+                <span>v.0.1.0</span>
+            </div>
+            <a class="nav-item" href="index.html">&#8592; Dashboard</a>
+            <div class="nav-item active">Market Data</div>
+            <a class="nav-item" href="history.html">History</a>
+            <a class="nav-item" href="cerebral.html">Cerebral</a>
+            <a class="nav-item" href="tokenomics.html">Tokenomics</a>
+        </header>
+
+        <!-- Quotes + Calendar + News Grid -->
+        <div class="section-header">
+            <span>Market Intelligence</span>
+            <span class="text-dim">QUOTES · CALENDAR · NEWS</span>
+        </div>
+        <div class="market-grid">
+            <!-- Market Quotes Widget -->
+            <div class="widget-cell widget-cell-quotes">
+                <div class="tradingview-widget-container">
+                    <div class="tradingview-widget-container__widget"></div>
+                    <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-market-quotes.js" async>
+                    {
+                        "colorTheme": "light",
+                        "locale": "en",
+                        "isTransparent": true,
+                        "showSymbolLogo": true,
+                        "backgroundColor": "#ffffff",
+                        "support_host": "https://www.tradingview.com",
+                        "width": "100%",
+                        "height": "100%",
+                        "symbolsGroups": [
+                            {
+                                "name": "Solana Ecosystem",
+                                "symbols": [
+                                    { "name": "TRADENATION:SOLANA", "displayName": "SOL/USD" },
+                                    { "name": "BINANCE:SOLBTC", "displayName": "SOL/BTC" },
+                                    { "name": "COINBASE:PUMPUSDC", "displayName": "PUMP/USDC" },
+                                    { "name": "CRYPTOCAP:USDC", "displayName": "USDC" }
+                                ]
+                            }
+                        ]
+                    }
+                    </script>
+                </div>
+            </div>
+
+            <!-- Economic Calendar Widget -->
+            <div class="widget-cell widget-cell-quotes">
+                <div class="tradingview-widget-container" style="width:100%;height:100%;">
+                    <div class="tradingview-widget-container__widget"></div>
+                    <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-events.js" async>
+                    {
+                        "colorTheme": "light",
+                        "isTransparent": true,
+                        "locale": "en",
+                        "countryFilter": "",
+                        "importanceFilter": "-1,0,1",
+                        "width": "100%",
+                        "height": "100%"
+                    }
+                    </script>
+                </div>
+            </div>
+
+            <!-- Top Stories Widget -->
+            <div class="widget-cell widget-cell-quotes">
+                <div class="tradingview-widget-container" style="width:100%;height:100%;">
+                    <div class="tradingview-widget-container__widget"></div>
+                    <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-timeline.js" async>
+                    {
+                        "displayMode": "adaptive",
+                        "feedMode": "all_symbols",
+                        "colorTheme": "light",
+                        "isTransparent": true,
+                        "locale": "en",
+                        "width": "100%",
+                        "height": "100%"
+                    }
+                    </script>
+                </div>
+            </div>
+        </div>
+
+        <!-- Advanced Chart Section -->
+        <div class="section-header">
+            <span>SOL Advanced Chart</span>
+            <span class="text-dim">TRADENATION:SOLANA</span>
+        </div>
+        <div class="chart-section">
+            <div class="tradingview-widget-container" style="height:100%;width:100%;">
+                <div class="tradingview-widget-container__widget" style="height:100%;width:100%;"></div>
+                <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js" async>
+                {
+                    "allow_symbol_change": true,
+                    "calendar": false,
+                    "details": true,
+                    "hide_side_toolbar": false,
+                    "hide_top_toolbar": false,
+                    "hide_legend": false,
+                    "hide_volume": false,
+                    "hotlist": true,
+                    "interval": "D",
+                    "locale": "en",
+                    "save_image": true,
+                    "style": "8",
+                    "symbol": "TRADENATION:SOLANA",
+                    "theme": "light",
+                    "timezone": "Etc/UTC",
+                    "backgroundColor": "#ffffff",
+                    "gridColor": "rgba(15, 15, 15, 0.06)",
+                    "watchlist": [],
+                    "withdateranges": true,
+                    "range": "1D",
+                    "compareSymbols": [],
+                    "show_popup_button": true,
+                    "popup_height": "650",
+                    "popup_width": "1000",
+                    "studies": [
+                        "STD;24h%Volume",
+                        "STD;Advance%1Decline%1Ratio",
+                        "STD;Volume%1Delta",
+                        "PriceVolumeTrend@tv-basicstudies",
+                        "STD;Price%1Target"
+                    ],
+                    "autosize": true
+                }
+                </script>
+            </div>
+        </div>
+
+        <!-- Depth Chart + Order Book -->
+        <div class="section-header">
+            <span>Order Book Depth</span>
+            <span class="text-dim" id="obMeta">SOL/USDT · Loading...</span>
+        </div>
+        <div style="display:grid; grid-template-columns: 1fr 1fr; border-bottom: 1px solid var(--border);">
+            <div id="depthChart" style="height:350px; border-right: 1px solid var(--border); padding: 1rem; position: relative;">
+                <svg id="depthSvg" width="100%" height="100%"></svg>
+            </div>
+            <div id="orderBookPanel" style="height:350px; overflow-y:auto;">
+                <div style="display:grid; grid-template-columns: 1fr 1fr; height:100%;">
+                    <div id="obBids" style="border-right:1px solid var(--border); overflow-y:auto;"></div>
+                    <div id="obAsks" style="overflow-y:auto;"></div>
+                </div>
+            </div>
+        </div>
+        <div style="display:grid; grid-template-columns: repeat(5, 1fr); border-bottom: 1px solid var(--border);">
+            <div style="padding:0.6rem 1rem; border-right:1px solid var(--border); text-align:center;">
+                <div style="font-size:0.55rem; text-transform:uppercase; color:var(--dim);">Best Bid</div>
+                <div id="obBestBid" style="font-weight:600; color:var(--green);">--</div>
+            </div>
+            <div style="padding:0.6rem 1rem; border-right:1px solid var(--border); text-align:center;">
+                <div style="font-size:0.55rem; text-transform:uppercase; color:var(--dim);">Best Ask</div>
+                <div id="obBestAsk" style="font-weight:600; color:var(--red);">--</div>
+            </div>
+            <div style="padding:0.6rem 1rem; border-right:1px solid var(--border); text-align:center;">
+                <div style="font-size:0.55rem; text-transform:uppercase; color:var(--dim);">Spread</div>
+                <div id="obSpread" style="font-weight:600;">--</div>
+            </div>
+            <div style="padding:0.6rem 1rem; border-right:1px solid var(--border); text-align:center;">
+                <div style="font-size:0.55rem; text-transform:uppercase; color:var(--dim);">Bid Depth</div>
+                <div id="obBidDepth" style="font-weight:600; color:var(--green);">--</div>
+            </div>
+            <div style="padding:0.6rem 1rem; text-align:center;">
+                <div style="font-size:0.55rem; text-transform:uppercase; color:var(--dim);">Ask Depth</div>
+                <div id="obAskDepth" style="font-weight:600; color:var(--red);">--</div>
+            </div>
+        </div>
+
+        <!-- Full-width Heatmap Section -->
+        <div class="section-header">
+            <span>Crypto Heatmap — Full View</span>
+            <span class="text-dim">MARKET CAP · 1H CHANGE</span>
+        </div>
+        <div class="heatmap-section">
+            <div class="tradingview-widget-container" style="width:100%;height:100%;">
+                <div class="tradingview-widget-container__widget" style="width:100%;height:100%;"></div>
+                <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-crypto-coins-heatmap.js" async>
+                {
+                    "dataSource": "Crypto",
+                    "blockSize": "market_cap_calc",
+                    "blockColor": "change|60",
+                    "locale": "en",
+                    "symbolUrl": "",
+                    "colorTheme": "light",
+                    "hasTopBar": true,
+                    "isDataSetEnabled": true,
+                    "isZoomEnabled": true,
+                    "hasSymbolTooltip": true,
+                    "isMonoSize": false,
+                    "width": "100%",
+                    "height": "100%"
+                }
+                </script>
+            </div>
+        </div>
+
+        <footer>
+            <div>CORTEX MARKET DATA</div>
+            <div>SOLANA MAINNET</div>
+            <div>&copy;2026 WIENER LABS</div>
+        </footer>
+    </div>
+
+    <script>
+        // Override TradingView widget card styles (Shadow DOM + iframe injection)
+        const TV_FONT_CSS = `
+            @font-face {
+                font-family: "Alliance No.2";
+                src: url("assets/fonts/Degarism Studio - Alliance No.2 Light.otf") format("opentype");
+                font-weight: 300; font-style: normal;
+            }
+            * { font-family: "Alliance No.2", -apple-system, sans-serif !important; }
+        `;
+
+        const TV_OVERRIDE_CSS = `
+            * { border-radius: 0 !important; }
+            .card, .container, [class*="card"], [class*="Card"],
+            [class*="wrapper"], [class*="Wrapper"], [class*="block"], [class*="Block"],
+            div[class] { border-radius: 0 !important; }
+        `;
+
+        const TV_CARD_BORDER_CSS = `
+            * { border-radius: 0 !important; }
+            .card, [class*="card"], [class*="Card"] {
+                border: 1px solid #080808 !important;
+                border-radius: 0 !important;
+            }
+        `;
+
+        const ALL_CSS = TV_FONT_CSS + TV_OVERRIDE_CSS + TV_CARD_BORDER_CSS;
+
+        function injectStyleToShadow(root) {
+            if (!root) return;
+            const style = document.createElement('style');
+            style.textContent = ALL_CSS;
+            root.appendChild(style);
+
+            root.querySelectorAll('iframe').forEach(iframe => {
+                try {
+                    const doc = iframe.contentDocument || iframe.contentWindow.document;
+                    if (doc) {
+                        const s = doc.createElement('style');
+                        s.textContent = ALL_CSS;
+                        doc.head.appendChild(s);
+                    }
+                } catch(e) {}
+            });
+        }
+
+        function patchWidgets() {
+            document.querySelectorAll('iframe').forEach(iframe => {
+                try {
+                    const doc = iframe.contentDocument || iframe.contentWindow.document;
+                    if (doc && doc.head) {
+                        const existing = doc.querySelector('style[data-cortex]');
+                        if (!existing) {
+                            const s = doc.createElement('style');
+                            s.setAttribute('data-cortex', '1');
+                            s.textContent = ALL_CSS;
+                            doc.head.appendChild(s);
+                        }
+                    }
+                } catch(e) {}
+            });
+
+            document.querySelectorAll('.summary-bar iframe, .widget-cell iframe').forEach(iframe => {
+                iframe.style.borderRadius = '0';
+                iframe.style.border = '1px solid #080808';
+            });
+        }
+
+        // Run repeatedly as widgets load asynchronously
+        let patchCount = 0;
+        const patchInterval = setInterval(() => {
+            patchWidgets();
+            patchCount++;
+            if (patchCount > 30) clearInterval(patchInterval);
+        }, 500);
+    </script>
+    <script src="js/config.js"></script>
+    <script src="js/api.js"></script>
+    <script src="js/ticker.js"></script>
+    <script src="js/wallet.js"></script>
+    <script src="js/toast.js"></script>
+
+    <script>
+    // === Order Book + Depth Chart ===
+    (async function loadOrderBook() {
+        if (typeof CortexAPI === 'undefined') return;
+
+        var data = await CortexAPI.get('/ccxt/orderbook?symbol=SOL/USDT&limit=50');
+        if (!data || !data.bids || !data.asks) return;
+
+        var meta = document.getElementById('obMeta');
+        if (meta) meta.textContent = data.symbol + ' · ' + data.exchange + ' · Spread: ' + data.spread_bps + ' bps';
+
+        // Summary stats
+        var el;
+        el = document.getElementById('obBestBid'); if (el) el.textContent = '$' + data.best_bid.toFixed(4);
+        el = document.getElementById('obBestAsk'); if (el) el.textContent = '$' + data.best_ask.toFixed(4);
+        el = document.getElementById('obSpread'); if (el) el.textContent = data.spread_bps.toFixed(1) + ' bps';
+        el = document.getElementById('obBidDepth'); if (el) el.textContent = data.bid_depth.toFixed(2) + ' SOL';
+        el = document.getElementById('obAskDepth'); if (el) el.textContent = data.ask_depth.toFixed(2) + ' SOL';
+
+        // Order book table (safe DOM construction)
+        renderOrderBookSide('obBids', data.bids, 'bid');
+        renderOrderBookSide('obAsks', data.asks, 'ask');
+
+        // Depth chart (SVG)
+        renderDepthChart(data.bids, data.asks);
+    })();
+
+    function renderOrderBookSide(containerId, levels, side) {
+        var container = document.getElementById(containerId);
+        if (!container) return;
+        container.textContent = '';
+
+        var header = document.createElement('div');
+        header.style.cssText = 'display:grid; grid-template-columns:1fr 1fr 1fr; padding:0.5rem 0.75rem; font-size:0.55rem; text-transform:uppercase; color:var(--dim); background:#f5f5f5; border-bottom:1px solid var(--border); position:sticky; top:0;';
+        var cols = side === 'bid' ? ['Price', 'Size', 'Total'] : ['Price', 'Size', 'Total'];
+        cols.forEach(function(c) {
+            var cell = document.createElement('div');
+            cell.textContent = c;
+            cell.style.textAlign = 'right';
+            header.appendChild(cell);
+        });
+        container.appendChild(header);
+
+        var cumulative = 0;
+        var maxCum = levels.reduce(function(s, l) { return s + l[1]; }, 0);
+
+        levels.forEach(function(level) {
+            cumulative += level[1];
+            var row = document.createElement('div');
+            row.style.cssText = 'display:grid; grid-template-columns:1fr 1fr 1fr; padding:0.3rem 0.75rem; font-size:0.6rem; border-bottom:1px solid #f0f0f0; position:relative;';
+
+            // Background bar
+            var barPct = maxCum > 0 ? (cumulative / maxCum * 100) : 0;
+            var barColor = side === 'bid' ? 'rgba(0,170,0,0.08)' : 'rgba(204,0,0,0.08)';
+            row.style.background = 'linear-gradient(to ' + (side === 'bid' ? 'left' : 'right') + ', ' + barColor + ' ' + barPct + '%, transparent ' + barPct + '%)';
+
+            var priceCell = document.createElement('div');
+            priceCell.textContent = level[0].toFixed(4);
+            priceCell.style.textAlign = 'right';
+            priceCell.style.color = side === 'bid' ? 'var(--green)' : 'var(--red)';
+            row.appendChild(priceCell);
+
+            var sizeCell = document.createElement('div');
+            sizeCell.textContent = level[1].toFixed(2);
+            sizeCell.style.textAlign = 'right';
+            row.appendChild(sizeCell);
+
+            var totalCell = document.createElement('div');
+            totalCell.textContent = cumulative.toFixed(2);
+            totalCell.style.textAlign = 'right';
+            totalCell.style.color = 'var(--dim)';
+            row.appendChild(totalCell);
+
+            container.appendChild(row);
+        });
+    }
+
+    function renderDepthChart(bids, asks) {
+        var svg = document.getElementById('depthSvg');
+        if (!svg || !bids.length || !asks.length) return;
+
+        var rect = svg.getBoundingClientRect();
+        var w = rect.width || 500;
+        var h = rect.height || 300;
+        var pad = { top: 20, right: 20, bottom: 30, left: 60 };
+        var iw = w - pad.left - pad.right;
+        var ih = h - pad.top - pad.bottom;
+
+        // Build cumulative depth data
+        var bidCum = [];
+        var cum = 0;
+        // Bids: highest price first
+        for (var i = 0; i < bids.length; i++) {
+            cum += bids[i][1];
+            bidCum.push({ price: bids[i][0], depth: cum });
+        }
+
+        var askCum = [];
+        cum = 0;
+        for (var j = 0; j < asks.length; j++) {
+            cum += asks[j][1];
+            askCum.push({ price: asks[j][0], depth: cum });
+        }
+
+        // Price range
+        var minPrice = bidCum[bidCum.length - 1].price;
+        var maxPrice = askCum[askCum.length - 1].price;
+        var maxDepth = Math.max(bidCum[bidCum.length - 1].depth, askCum[askCum.length - 1].depth);
+
+        function xScale(price) { return pad.left + ((price - minPrice) / (maxPrice - minPrice)) * iw; }
+        function yScale(depth) { return pad.top + ih - (depth / maxDepth) * ih; }
+
+        // Build SVG content
+        var ns = 'http://www.w3.org/2000/svg';
+        while (svg.firstChild) svg.removeChild(svg.firstChild);
+
+        svg.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
+
+        // Grid lines
+        for (var g = 0; g <= 4; g++) {
+            var yy = pad.top + (ih / 4) * g;
+            var line = document.createElementNS(ns, 'line');
+            line.setAttribute('x1', pad.left); line.setAttribute('x2', w - pad.right);
+            line.setAttribute('y1', yy); line.setAttribute('y2', yy);
+            line.setAttribute('stroke', '#e8e8e8'); line.setAttribute('stroke-dasharray', '2,2');
+            svg.appendChild(line);
+
+            var label = document.createElementNS(ns, 'text');
+            label.setAttribute('x', pad.left - 5); label.setAttribute('y', yy + 3);
+            label.setAttribute('text-anchor', 'end');
+            label.setAttribute('font-size', '9'); label.setAttribute('fill', '#222');
+            label.textContent = ((maxDepth - (maxDepth / 4) * g)).toFixed(0);
+            svg.appendChild(label);
+        }
+
+        // Bid area (green)
+        var bidPath = 'M' + xScale(bidCum[0].price) + ',' + yScale(0);
+        for (var b = 0; b < bidCum.length; b++) {
+            bidPath += ' L' + xScale(bidCum[b].price) + ',' + yScale(bidCum[b].depth);
+        }
+        bidPath += ' L' + xScale(bidCum[bidCum.length - 1].price) + ',' + yScale(0) + ' Z';
+
+        var bidArea = document.createElementNS(ns, 'path');
+        bidArea.setAttribute('d', bidPath);
+        bidArea.setAttribute('fill', 'rgba(0,170,0,0.15)');
+        bidArea.setAttribute('stroke', '#00aa00');
+        bidArea.setAttribute('stroke-width', '1.5');
+        svg.appendChild(bidArea);
+
+        // Ask area (red)
+        var askPath = 'M' + xScale(askCum[0].price) + ',' + yScale(0);
+        for (var a = 0; a < askCum.length; a++) {
+            askPath += ' L' + xScale(askCum[a].price) + ',' + yScale(askCum[a].depth);
+        }
+        askPath += ' L' + xScale(askCum[askCum.length - 1].price) + ',' + yScale(0) + ' Z';
+
+        var askArea = document.createElementNS(ns, 'path');
+        askArea.setAttribute('d', askPath);
+        askArea.setAttribute('fill', 'rgba(204,0,0,0.15)');
+        askArea.setAttribute('stroke', '#cc0000');
+        askArea.setAttribute('stroke-width', '1.5');
+        svg.appendChild(askArea);
+
+        // Mid price line
+        var midPrice = (bids[0][0] + asks[0][0]) / 2;
+        var midLine = document.createElementNS(ns, 'line');
+        midLine.setAttribute('x1', xScale(midPrice)); midLine.setAttribute('x2', xScale(midPrice));
+        midLine.setAttribute('y1', pad.top); midLine.setAttribute('y2', pad.top + ih);
+        midLine.setAttribute('stroke', '#080808'); midLine.setAttribute('stroke-dasharray', '4,2');
+        midLine.setAttribute('stroke-width', '1');
+        svg.appendChild(midLine);
+
+        var midLabel = document.createElementNS(ns, 'text');
+        midLabel.setAttribute('x', xScale(midPrice)); midLabel.setAttribute('y', pad.top - 5);
+        midLabel.setAttribute('text-anchor', 'middle');
+        midLabel.setAttribute('font-size', '9'); midLabel.setAttribute('fill', '#080808');
+        midLabel.textContent = 'MID $' + midPrice.toFixed(2);
+        svg.appendChild(midLabel);
+
+        // X axis labels
+        var xTicks = [minPrice, (minPrice + midPrice) / 2, midPrice, (midPrice + maxPrice) / 2, maxPrice];
+        xTicks.forEach(function(p) {
+            var xl = document.createElementNS(ns, 'text');
+            xl.setAttribute('x', xScale(p)); xl.setAttribute('y', h - 5);
+            xl.setAttribute('text-anchor', 'middle');
+            xl.setAttribute('font-size', '9'); xl.setAttribute('fill', '#222');
+            xl.textContent = '$' + p.toFixed(2);
+            svg.appendChild(xl);
+        });
+
+        // Axis labels
+        var yLabel = document.createElementNS(ns, 'text');
+        yLabel.setAttribute('x', 10); yLabel.setAttribute('y', pad.top + ih / 2);
+        yLabel.setAttribute('text-anchor', 'middle');
+        yLabel.setAttribute('font-size', '9'); yLabel.setAttribute('fill', '#222');
+        yLabel.setAttribute('transform', 'rotate(-90,' + 10 + ',' + (pad.top + ih / 2) + ')');
+        yLabel.textContent = 'Cumulative Depth';
+        svg.appendChild(yLabel);
+    }
+    </script>
+</body>
+</html>
+

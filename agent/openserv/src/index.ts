@@ -4,6 +4,14 @@ import { z } from "zod";
 
 const CORTEX_API_URL =
   process.env.CORTEX_API_URL || "http://localhost:8000";
+const CORTEX_API_KEY = process.env.CORTEX_API_KEY || "";
+
+function cortexHeaders(json = false): Record<string, string> {
+  const h: Record<string, string> = {};
+  if (json) h["Content-Type"] = "application/json";
+  if (CORTEX_API_KEY) h["X-API-Key"] = CORTEX_API_KEY;
+  return h;
+}
 
 const agent = new Agent({
   systemPrompt:
@@ -36,7 +44,7 @@ agent.addCapability({
     try {
       const resp = await fetch(`${CORTEX_API_URL}/api/v1/narrator/explain`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: cortexHeaders(true),
         body: JSON.stringify({
           token: args.token,
           direction: args.direction,
@@ -78,7 +86,7 @@ agent.addCapability({
     try {
       const resp = await fetch(`${CORTEX_API_URL}/api/v1/narrator/news`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: cortexHeaders(true),
         body: JSON.stringify({
           news_items: args.news_items ?? null,
           news_signal: args.news_signal ?? null,
@@ -109,7 +117,7 @@ agent.addCapability({
     try {
       const resp = await fetch(
         `${CORTEX_API_URL}/api/v1/narrator/briefing`,
-        { method: "GET" },
+        { method: "GET", headers: cortexHeaders() },
       );
 
       if (!resp.ok) {
@@ -138,7 +146,7 @@ agent.addCapability({
     try {
       const resp = await fetch(`${CORTEX_API_URL}/api/v1/narrator/ask`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: cortexHeaders(true),
         body: JSON.stringify({ question: args.question }),
       });
 
@@ -178,18 +186,20 @@ agent.addCapability({
       const results: Record<string, unknown> = {};
 
       // DX status (feature flags)
-      const statusResp = await fetch(`${CORTEX_API_URL}/api/v1/dx/status`);
+      const statusResp = await fetch(`${CORTEX_API_URL}/api/v1/dx/status`, { headers: cortexHeaders() });
       if (statusResp.ok) results.status = await statusResp.json();
 
       // Stigmergy
       if (args.token) {
         const stigResp = await fetch(
           `${CORTEX_API_URL}/api/v1/dx/stigmergy/${args.token}`,
+          { headers: cortexHeaders() },
         );
         if (stigResp.ok) results.stigmergy = await stigResp.json();
       } else {
         const stigResp = await fetch(
           `${CORTEX_API_URL}/api/v1/dx/stigmergy`,
+          { headers: cortexHeaders() },
         );
         if (stigResp.ok) results.stigmergy = await stigResp.json();
       }
@@ -198,6 +208,7 @@ agent.addCapability({
       if (args.token) {
         const cascResp = await fetch(
           `${CORTEX_API_URL}/api/v1/dx/cascade/${args.token}`,
+          { headers: cortexHeaders() },
         );
         if (cascResp.ok) results.cascade = await cascResp.json();
       }
@@ -206,12 +217,13 @@ agent.addCapability({
       if (args.vault_id) {
         const vaultResp = await fetch(
           `${CORTEX_API_URL}/api/v1/dx/vault/${args.vault_id}`,
+          { headers: cortexHeaders() },
         );
         if (vaultResp.ok) results.vault = await vaultResp.json();
       }
 
       // Active overrides
-      const ovrResp = await fetch(`${CORTEX_API_URL}/api/v1/dx/overrides`);
+      const ovrResp = await fetch(`${CORTEX_API_URL}/api/v1/dx/overrides`, { headers: cortexHeaders() });
       if (ovrResp.ok) results.overrides = await ovrResp.json();
 
       return JSON.stringify(results, null, 2);
@@ -255,7 +267,7 @@ agent.addCapability({
       if (args.revoke_id) {
         const resp = await fetch(
           `${CORTEX_API_URL}/api/v1/dx/overrides/${args.revoke_id}?revoked_by=${encodeURIComponent(args.created_by)}`,
-          { method: "DELETE" },
+          { method: "DELETE", headers: cortexHeaders() },
         );
         if (!resp.ok) {
           const text = await resp.text();
@@ -271,7 +283,7 @@ agent.addCapability({
 
       const resp = await fetch(`${CORTEX_API_URL}/api/v1/dx/overrides`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: cortexHeaders(true),
         body: JSON.stringify({
           action: args.action,
           token: args.token,

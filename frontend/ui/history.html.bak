@@ -1,0 +1,719 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CORTEX | Trade History</title>
+    <style>
+        @font-face {
+            font-family: "Alliance No.1";
+            src: url("assets/fonts/Degarism Studio - Alliance No.1 Light.otf") format("opentype");
+            font-weight: 300; font-style: normal; font-display: swap;
+        }
+        @font-face {
+            font-family: "Alliance No.2";
+            src: url("assets/fonts/Degarism Studio - Alliance No.2 Light.otf") format("opentype");
+            font-weight: 300; font-style: normal; font-display: swap;
+        }
+        :root {
+            --bg: #ffffff; --fg: #080808; --dim: #222222;
+            --border: #000000; --accent: #000000;
+            --green: #00aa00; --red: #cc0000;
+            --font-main: "Alliance No.1", sans-serif;
+            --font-mono: "Alliance No.2", sans-serif;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; -webkit-font-smoothing: antialiased; }
+        body { background: var(--bg); color: var(--fg); font-family: var(--font-mono); font-size: 15px; line-height: 1.4; overflow-x: hidden; }
+        .text-dim { color: var(--dim); }
+        .text-green { color: var(--green); }
+        .text-red { color: var(--red); }
+        .container { max-width: 1400px; margin: 0 auto; border-left: 1px solid var(--border); border-right: 1px solid var(--border); min-height: 100vh; }
+        header { display: grid; grid-template-columns: 1fr auto auto auto auto auto auto; border-bottom: 1px solid var(--border); }
+        .logo { font-family: var(--font-main); font-size: 1.5rem; font-weight: bold; display: flex; align-items: center; padding: 1rem; gap: 8px; }
+        .logo-img { height: 78px; width: auto; display: block; }
+        .logo span { font-size: 0.5em; font-family: var(--font-mono); color: var(--dim); }
+        .nav-item { border-left: 1px solid var(--border); display: flex; align-items: center; justify-content: center; padding: 1rem 1.5rem; text-transform: capitalize; font-size: 0.7rem; cursor: pointer; transition: background 0.2s, color 0.2s; text-decoration: none; color: var(--fg); }
+        .nav-item:hover, .nav-item.active { background: var(--fg); color: var(--bg); }
+        .section-header { padding: 0.75rem 1rem; border-bottom: 1px solid var(--border); font-size: 0.7rem; text-transform: capitalize; background: #f5f5f5; display: flex; justify-content: space-between; align-items: center; }
+        .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); border-bottom: 1px solid var(--border); }
+        .stat-cell { padding: 1rem; border-right: 1px solid var(--border); text-align: center; }
+        .stat-cell:last-child { border-right: none; }
+        .stat-label { font-size: 0.6rem; text-transform: uppercase; color: var(--dim); margin-bottom: 0.25rem; }
+        .stat-value { font-family: var(--font-main); font-size: 1.1rem; font-weight: 600; }
+        .calendar-section { padding: 1.5rem; }
+        .calendar-container { overflow-x: auto; }
+        .calendar-container svg { font-family: var(--font-mono); display: block; }
+        .calendar-container svg text { fill: var(--dim); font-size: 10px; }
+        .cal-tooltip { position: fixed; padding: 8px 12px; background: var(--fg); color: var(--bg); font-size: 0.7rem; font-family: var(--font-mono); pointer-events: none; opacity: 0; transition: opacity 0.15s; z-index: 1000; line-height: 1.6; }
+        .cal-legend { display: flex; align-items: center; gap: 6px; padding: 0.75rem 1rem; font-size: 0.65rem; color: var(--dim); border-top: 1px solid var(--border); }
+        .cal-legend-bar { display: flex; gap: 2px; }
+        .cal-legend-bar span { width: 12px; height: 12px; display: block; }
+        .year-selector { display: flex; gap: 0.25rem; }
+        .year-selector .btn { font-size: 0.65rem; padding: 3px 10px; border: 1px solid var(--border); background: var(--bg); cursor: pointer; font-family: var(--font-mono); transition: all 0.2s; }
+        .year-selector .btn:hover, .year-selector .btn.active { background: var(--fg); color: var(--bg); }
+        footer { border-top: 1px solid var(--border); padding: 1rem; display: flex; justify-content: space-between; font-size: 0.6rem; text-transform: uppercase; color: var(--dim); }
+        .scanline { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient(to bottom, transparent, rgba(0,0,0,0.02), transparent); pointer-events: none; animation: scanline 8s linear infinite; z-index: 100; }
+        @keyframes scanline { 0% { transform: translateY(-100%); } 100% { transform: translateY(100vh); } }
+        /* Wallet nav */
+        .wallet-connected { position: relative; }
+        .wallet-addr { font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: 0.5px; }
+        .wallet-dropdown { position: absolute; top: 100%; right: 0; background: var(--bg); border: 1px solid var(--border); min-width: 200px; z-index: 60; display: none; }
+        .wallet-dropdown.open { display: block; }
+        .wallet-dropdown-item { padding: 0.75rem 1rem; font-size: 0.7rem; text-transform: capitalize; cursor: pointer; transition: background 0.2s; display: flex; align-items: center; gap: 0.5rem; }
+        .wallet-dropdown-item:hover { background: #f0f0f0; }
+        .wallet-dropdown-item:not(:last-child) { border-bottom: 1px solid var(--border); }
+        .wallet-dropdown-item.disconnect { color: var(--red); }
+        .wallet-dropdown-item .dd-icon { font-size: 0.6rem; color: var(--dim); width: 14px; text-align: center; }
+        .wallet-dropdown-item.disconnect .dd-icon { color: var(--red); }
+        .ticker { overflow: hidden; white-space: nowrap; padding: 0.5rem 0; border-bottom: 1px solid var(--border); font-size: 0.7rem; color: var(--dim); background: #f5f5f5; }
+        .ticker-content { display: inline-block; animation: marquee 30s linear infinite; }
+        .ticker-item { display: inline-block; margin-right: 3rem; }
+        .ticker-item .price { color: var(--fg); margin-left: 0.5rem; }
+        .ticker-item .change.up { color: var(--green); }
+        .ticker-item .change.down { color: var(--red); }
+        @keyframes marquee { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
+        /* Strategy Breakdown */
+        .strat-grid { display: grid; grid-template-columns: repeat(3, 1fr); border-bottom: 1px solid var(--border); }
+        .strat-card { padding: 1rem; border-right: 1px solid var(--border); }
+        .strat-card:last-child { border-right: none; }
+        .strat-name { font-size: 0.6rem; text-transform: uppercase; color: var(--dim); margin-bottom: 0.5rem; display: flex; justify-content: space-between; align-items: center; }
+        .strat-alloc { font-size: 0.55rem; padding: 2px 6px; border: 1px solid var(--border); }
+        .strat-pnl { font-family: var(--font-main); font-size: 1.1rem; font-weight: 600; margin-bottom: 0.5rem; }
+        .strat-bar { height: 4px; background: #eee; margin-bottom: 0.5rem; }
+        .strat-bar-fill { height: 100%; transition: width 0.6s ease; }
+        .strat-meta { font-size: 0.6rem; color: var(--dim); display: flex; justify-content: space-between; }
+
+        /* Agent Attribution Table */
+        .attr-table { width: 100%; border-collapse: collapse; font-size: 0.7rem; }
+        .attr-table th { padding: 0.5rem 1rem; text-align: left; font-weight: 400; text-transform: uppercase; font-size: 0.6rem; color: var(--dim); border-bottom: 1px solid var(--border); background: #fafafa; }
+        .attr-table td { padding: 0.5rem 1rem; border-bottom: 1px solid #eee; }
+        .attr-table tr:last-child td { border-bottom: 1px solid var(--border); }
+        .attr-table .agent-role { font-size: 0.55rem; color: var(--dim); }
+        .attr-bar-cell { width: 120px; }
+        .attr-bar { height: 6px; background: #eee; position: relative; }
+        .attr-bar-fill { height: 100%; position: absolute; top: 0; }
+        .attr-bar-fill.positive { left: 50%; background: var(--green); }
+        .attr-bar-fill.negative { right: 50%; background: var(--red); }
+
+        /* Trade Decision Log */
+        .trade-log { max-height: 400px; overflow-y: auto; }
+        .trade-entry { padding: 0.75rem 1rem; border-bottom: 1px solid #eee; cursor: pointer; transition: background 0.15s; }
+        .trade-entry:hover { background: #fafafa; }
+        .trade-entry:last-child { border-bottom: 1px solid var(--border); }
+        .trade-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem; }
+        .trade-pair { font-family: var(--font-main); font-size: 0.8rem; font-weight: 600; }
+        .trade-result { font-size: 0.7rem; font-weight: 600; }
+        .trade-details { font-size: 0.6rem; color: var(--dim); display: flex; gap: 1rem; flex-wrap: wrap; }
+        .trade-reasoning { display: none; margin-top: 0.5rem; padding: 0.5rem 0.75rem; background: #f9f9f9; border-left: 2px solid var(--border); font-size: 0.65rem; line-height: 1.6; color: var(--dim); }
+        .trade-entry.open .trade-reasoning { display: block; }
+
+        /* Storage Tier Badges */
+        .tier-badge { font-size: 0.55rem; padding: 2px 8px; text-transform: uppercase; letter-spacing: 0.5px; border: 1px solid; }
+        .tier-badge.hot { border-color: var(--red); color: var(--red); }
+        .tier-badge.warm { border-color: #cc8800; color: #cc8800; }
+        .tier-badge.cold { border-color: var(--dim); color: var(--dim); }
+        .tier-badges { display: flex; gap: 0.5rem; align-items: center; }
+
+        /* Analyst Reports */
+        .report-list { max-height: 300px; overflow-y: auto; }
+        .report-item { padding: 0.75rem 1rem; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; }
+        .report-item:last-child { border-bottom: 1px solid var(--border); }
+        .report-type { font-size: 0.55rem; text-transform: uppercase; padding: 2px 6px; border: 1px solid var(--border); white-space: nowrap; }
+        .report-body { flex: 1; font-size: 0.65rem; color: var(--dim); line-height: 1.5; }
+        .report-time { font-size: 0.55rem; color: var(--dim); white-space: nowrap; }
+
+        /* Debate Archive */
+        .debate-list { max-height: 350px; overflow-y: auto; }
+        .debate-item { padding: 0.75rem 1rem; border-bottom: 1px solid #eee; }
+        .debate-item:last-child { border-bottom: 1px solid var(--border); }
+        .debate-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem; }
+        .debate-topic { font-family: var(--font-main); font-size: 0.75rem; font-weight: 600; }
+        .debate-verdict { font-size: 0.6rem; padding: 2px 8px; border: 1px solid; }
+        .debate-verdict.approved { border-color: var(--green); color: var(--green); }
+        .debate-verdict.rejected { border-color: var(--red); color: var(--red); }
+        .debate-verdict.modified { border-color: #cc8800; color: #cc8800; }
+        .debate-rounds { font-size: 0.6rem; color: var(--dim); line-height: 1.6; }
+        .debate-round-label { font-weight: 600; color: var(--fg); }
+
+        /* Strategy Chart */
+        .strat-chart-section { padding: 1rem; border-bottom: 1px solid var(--border); }
+        #strategyChart { width: 100%; height: 220px; }
+
+        @media (max-width: 768px) {
+            header { grid-template-columns: 1fr auto; }
+            .nav-item:not(:last-child):not(.active) { display: none; }
+            .stats-grid { grid-template-columns: repeat(2, 1fr); }
+            .strat-grid { grid-template-columns: 1fr; }
+            .strat-card { border-right: none; border-bottom: 1px solid var(--border); }
+        }
+    </style>
+    <script src="https://d3js.org/d3.v6.min.js"></script>
+    <script src="js/config.js"></script>
+    <script src="js/api.js"></script>
+    <script src="js/history-service.js"></script>
+</head>
+<body>
+    <div class="scanline"></div>
+    <div class="container">
+        <div class="ticker">
+            <div class="ticker-content" id="tickerContent">
+                <span class="ticker-item">Loading live prices...</span>
+            </div>
+        </div>
+        <header>
+            <div class="logo"><img src="assets/logos/cortex-logo-dark.png" alt="CORTEX" class="logo-img"><span>v.0.1.0</span></div>
+            <a class="nav-item" href="index.html">&#8592; Dashboard</a>
+            <a class="nav-item" href="market.html">Market Data</a>
+            <div class="nav-item active">History</div>
+            <a class="nav-item" href="cerebral.html">Cerebral</a>
+            <a class="nav-item" href="tokenomics.html">Tokenomics</a>
+        </header>
+        <div class="stats-grid">
+            <div class="stat-cell"><div class="stat-label">Total P&amp;L (YTD)</div><div class="stat-value text-green" id="statTotalPnl">&mdash;</div></div>
+            <div class="stat-cell"><div class="stat-label">Win Rate</div><div class="stat-value" id="statWinRate">&mdash;</div></div>
+            <div class="stat-cell"><div class="stat-label">Best Day</div><div class="stat-value text-green" id="statBestDay">&mdash;</div></div>
+            <div class="stat-cell"><div class="stat-label">Worst Day</div><div class="stat-value text-red" id="statWorstDay">&mdash;</div></div>
+        </div>
+        <div class="section-header">
+            <span>P&amp;L Calendar</span>
+            <div class="year-selector" id="yearSelector"></div>
+        </div>
+        <div class="calendar-section">
+            <div class="calendar-container" id="calendarChart"></div>
+        </div>
+        <div class="cal-legend">
+            <span>Loss</span>
+            <div class="cal-legend-bar" id="calLegend"></div>
+            <span>Profit</span>
+        </div>
+
+        <!-- Strategy P&L Breakdown -->
+        <div class="section-header">
+            <span>Strategy Performance Breakdown</span>
+            <span class="text-dim">LP Rebalancing · Arbitrage · Perpetuals</span>
+        </div>
+        <div class="strat-grid" id="stratGrid"></div>
+        <div class="strat-chart-section">
+            <div id="strategyChart"></div>
+        </div>
+
+        <!-- Agent P&L Attribution -->
+        <div class="section-header">
+            <span>Agent P&L Attribution</span>
+            <span class="text-dim">9 Agents · YTD</span>
+        </div>
+        <table class="attr-table" id="attrTable">
+            <thead>
+                <tr>
+                    <th>Agent</th>
+                    <th>Role</th>
+                    <th>Trades</th>
+                    <th>Win Rate</th>
+                    <th>P&L</th>
+                    <th class="attr-bar-cell">Attribution</th>
+                </tr>
+            </thead>
+            <tbody id="attrBody"></tbody>
+        </table>
+
+        <!-- Trade Decision Log -->
+        <div class="section-header">
+            <span>Trade Decision Log</span>
+            <div class="tier-badges">
+                <span class="tier-badge hot">HOT 7d</span>
+                <span class="tier-badge warm">WARM 90d</span>
+                <span class="tier-badge cold">COLD ∞</span>
+            </div>
+        </div>
+        <div class="trade-log" id="tradeLog"></div>
+
+        <!-- Analyst Report History -->
+        <div class="section-header">
+            <span>Analyst Report Archive</span>
+            <span class="text-dim">Technical · On-Chain · Sentiment · Macro</span>
+        </div>
+        <div class="report-list" id="reportList"></div>
+
+        <!-- Debate Transcript Archive -->
+        <div class="section-header">
+            <span>Debate Transcript Archive</span>
+            <span class="text-dim">Adversarial · 4-Round Process</span>
+        </div>
+        <div class="debate-list" id="debateList"></div>
+
+        <footer>
+            <div>CORTEX TRADE HISTORY</div>
+            <div>SOLANA MAINNET</div>
+            <div>&copy;2026 WIENER LABS</div>
+        </footer>
+    </div>
+    <div class="cal-tooltip" id="calTooltip"></div>
+    <script>
+    (function() {
+        var cellSize = 16;
+        var width = 928;
+        var height = cellSize * 9;
+        var tooltip = document.getElementById('calTooltip');
+        var formatValue = d3.format('+.2%');
+        var formatDate = d3.utcFormat('%B %d, %Y');
+        var formatDay = function(i) { return 'SMTWTFS'[i]; };
+        var formatMonth = d3.utcFormat('%b');
+        var timeWeek = d3.utcMonday;
+        var countDay = function(i) { return (i + 6) % 7; };
+
+        function renderEmptyCalendar() {
+            var el = document.getElementById('calendarChart');
+            if (el) el.innerHTML = '<div style="padding:2rem;text-align:center;color:var(--dim);font-size:0.65rem;font-family:var(--font-mono)">No PnL data available — connect API to populate calendar</div>';
+        }
+
+        function initCalendar(rawData) {
+            var data = rawData.map(function(d) {
+                return { date: d3.utcParse('%Y-%m-%d')(d.Date), value: d.Change, close: d.Close };
+            });
+
+            var maxAbs = d3.max(data, function(d) { return Math.abs(d.value); }) || 0.05;
+            var color = d3.scaleSequential()
+                .domain([-maxAbs, maxAbs])
+                .interpolator(function(t) {
+                    if (t < 0.5) {
+                        var s = t / 0.5;
+                        return 'rgb(' + Math.round(204 + 36 * s) + ',' + Math.round(240 * s) + ',' + Math.round(240 * s) + ')';
+                    } else {
+                        var s2 = (t - 0.5) / 0.5;
+                        return 'rgb(' + Math.round(240 - 240 * s2) + ',' + Math.round(240 - 70 * s2) + ',' + Math.round(240 - 240 * s2) + ')';
+                    }
+                });
+
+            var years = d3.groups(data, function(d) { return d.date.getUTCFullYear(); }).reverse();
+            var availableYears = years.map(function(y) { return y[0]; });
+            var activeYear = availableYears[0];
+
+            function updateStats(yearData) {
+                var wins = yearData.filter(function(d) { return d.value > 0; }).length;
+                var total = yearData.length;
+                var best = d3.max(yearData, function(d) { return d.value; }) || 0;
+                var worst = d3.min(yearData, function(d) { return d.value; }) || 0;
+                var totalPnl = yearData.reduce(function(s, d) { return s * (1 + d.value); }, 1) - 1;
+                document.getElementById('statTotalPnl').textContent = formatValue(totalPnl);
+                document.getElementById('statTotalPnl').className = 'stat-value ' + (totalPnl >= 0 ? 'text-green' : 'text-red');
+                document.getElementById('statWinRate').textContent = total > 0 ? (wins / total * 100).toFixed(1) + '%' : '—';
+                document.getElementById('statBestDay').textContent = formatValue(best);
+                document.getElementById('statWorstDay').textContent = formatValue(worst);
+            }
+
+            function renderCalendar(year) {
+                activeYear = year;
+                var container = document.getElementById('calendarChart');
+                container.innerHTML = '';
+                var yearData = years.find(function(y) { return y[0] === year; });
+                if (!yearData) return;
+                var values = yearData[1];
+                updateStats(values);
+
+                var svg = d3.select(container).append('svg')
+                    .attr('width', width).attr('height', height)
+                    .attr('viewBox', [0, 0, width, height])
+                    .attr('style', 'max-width: 100%; height: auto;');
+
+                var yearGroup = svg.append('g').attr('transform', 'translate(40.5, 0)');
+                yearGroup.append('text').attr('x', -5).attr('y', -5).attr('font-weight', 'bold').attr('text-anchor', 'end').text(year);
+
+                yearGroup.append('g').attr('text-anchor', 'end')
+                    .selectAll().data(d3.range(7).filter(function(i) { return i !== 0 && i !== 6; }))
+                    .join('text').attr('x', -5).attr('y', function(i) { return (countDay(i) + 0.5) * cellSize; })
+                    .attr('dy', '0.31em').text(formatDay);
+
+                yearGroup.append('g').selectAll('rect').data(values).join('rect')
+                    .attr('width', cellSize - 1.5).attr('height', cellSize - 1.5)
+                    .attr('x', function(d) { return timeWeek.count(d3.utcYear(d.date), d.date) * cellSize + 0.5; })
+                    .attr('y', function(d) { return countDay(d.date.getUTCDay()) * cellSize + 0.5; })
+                    .attr('fill', function(d) { return color(d.value); }).attr('rx', 1)
+                    .on('mouseenter', function(event, d) {
+                        tooltip.style.opacity = '1';
+                        tooltip.innerHTML = '<strong>' + formatDate(d.date) + '</strong><br>P&L: ' + formatValue(d.value) + '<br>Close: $' + d.close.toFixed(2);
+                    })
+                    .on('mousemove', function(event) { tooltip.style.left = (event.clientX + 12) + 'px'; tooltip.style.top = (event.clientY - 10) + 'px'; })
+                    .on('mouseleave', function() { tooltip.style.opacity = '0'; });
+
+                var month = yearGroup.append('g')
+                    .selectAll().data(d3.utcMonths(d3.utcMonth(values[0].date), values[values.length - 1].date)).join('g');
+                month.filter(function(d, i) { return i; }).append('path')
+                    .attr('fill', 'none').attr('stroke', '#cccccc').attr('stroke-width', 2).attr('d', pathMonth);
+                month.append('text')
+                    .attr('x', function(d) { return timeWeek.count(d3.utcYear(d), timeWeek.ceil(d)) * cellSize + 2; })
+                    .attr('y', -5).text(formatMonth);
+
+                document.querySelectorAll('.year-selector .btn').forEach(function(b) {
+                    b.classList.toggle('active', parseInt(b.textContent) === year);
+                });
+            }
+
+            function pathMonth(t) {
+                var d = Math.max(0, Math.min(5, countDay(t.getUTCDay())));
+                var w = timeWeek.count(d3.utcYear(t), t);
+                return 'M' + (w + 1) * cellSize + ',' + d * cellSize + 'H' + w * cellSize + 'V' + 5 * cellSize + 'H' + (w + 1) * cellSize + 'V' + d * cellSize;
+            }
+
+            var selector = document.getElementById('yearSelector');
+            selector.innerHTML = '';
+            availableYears.forEach(function(y) {
+                var btn = document.createElement('button');
+                btn.className = 'btn' + (y === activeYear ? ' active' : '');
+                btn.textContent = y;
+                btn.onclick = function() { renderCalendar(y); };
+                selector.appendChild(btn);
+            });
+
+            var legendBar = document.getElementById('calLegend');
+            legendBar.innerHTML = '';
+            var steps = [-maxAbs, -maxAbs * 0.66, -maxAbs * 0.33, 0, maxAbs * 0.33, maxAbs * 0.66, maxAbs];
+            steps.forEach(function(v) { var s = document.createElement('span'); s.style.background = color(v); legendBar.appendChild(s); });
+
+            renderCalendar(activeYear);
+        }
+
+        // Try API first, fall back to synthetic data
+        (async function() {
+            var entries = await HistoryService.fetchExecutionLog(500);
+            var dailyPnl = entries ? HistoryService.computeDailyPnl(entries) : null;
+            if (dailyPnl && dailyPnl.length > 0) {
+                initCalendar(dailyPnl);
+            } else {
+                renderEmptyCalendar();
+            }
+        })();
+    })();
+    </script>
+    <script>
+    (function() {
+        // Strategy P&L Breakdown — tries API, no hardcoded fallback
+        var fallbackStrategies = [];
+
+        function renderStrategyCards(strategies) {
+            var stratGrid = document.getElementById('stratGrid');
+            stratGrid.innerHTML = '';
+            if (!strategies || strategies.length === 0) {
+                stratGrid.innerHTML = '<div style="padding:2rem;text-align:center;color:var(--dim);font-size:0.65rem;font-family:var(--font-mono);grid-column:1/-1">No trade history available</div>';
+                return;
+            }
+            strategies.forEach(function(s) {
+                var pnlClass = s.pnl >= 0 ? 'text-green' : 'text-red';
+                var barPct = Math.min(Math.abs(s.pnl) / (s.maxPnl || 12000) * 100, 100);
+                var barColor = s.pnl >= 0 ? 'var(--green)' : 'var(--red)';
+                var pnlStr = (s.pnl >= 0 ? '+' : '') + '$' + Math.abs(s.pnl).toLocaleString('en-US', {minimumFractionDigits: 2});
+                if (s.pnl < 0) pnlStr = '-$' + Math.abs(s.pnl).toLocaleString('en-US', {minimumFractionDigits: 2});
+                stratGrid.innerHTML +=
+                    '<div class="strat-card">' +
+                    '<div class="strat-name"><span>' + s.name + '</span><span class="strat-alloc">' + s.alloc + '</span></div>' +
+                    '<div class="strat-pnl ' + pnlClass + '">' + pnlStr + '</div>' +
+                    '<div class="strat-bar"><div class="strat-bar-fill" style="width:' + barPct + '%;background:' + barColor + '"></div></div>' +
+                    '<div class="strat-meta"><span>' + s.trades + ' trades</span><span>' + s.winRate + '% win</span></div>' +
+                    '<div style="font-size:0.55rem;color:var(--dim);margin-top:0.4rem">' + (s.params || '') + '</div>' +
+                    '</div>';
+            });
+        }
+
+        function renderEmptyMonthlyChart() {
+            var el = document.getElementById('strategyChart');
+            if (el) el.innerHTML = '<div style="padding:2rem;text-align:center;color:var(--dim);font-size:0.65rem;font-family:var(--font-mono)">No monthly strategy data — connect API to populate chart</div>';
+        }
+
+        function renderMonthlyChart(monthlyData) {
+            var chartEl = document.getElementById('strategyChart');
+            chartEl.innerHTML = '';
+            var margin = { top: 20, right: 20, bottom: 30, left: 50 };
+            var cW = chartEl.clientWidth || 800;
+            var cH = 220;
+            var iW = cW - margin.left - margin.right;
+            var iH = cH - margin.top - margin.bottom;
+            var activeMonths = monthlyData.map(function(d) { return d.month; });
+
+            var svg = d3.select(chartEl).append('svg')
+                .attr('width', cW).attr('height', cH)
+                .attr('viewBox', [0, 0, cW, cH])
+                .attr('style', 'max-width:100%;height:auto;font-family:var(--font-mono);');
+
+            var g = svg.append('g').attr('transform', 'translate(' + margin.left + ',' + margin.top + ')');
+            var keys = ['lp', 'arb', 'perp'];
+            var colors = { lp: '#00aa00', arb: '#0066cc', perp: '#cc8800' };
+            var stack = d3.stack().keys(keys).offset(d3.stackOffsetDiverging);
+            var series = stack(monthlyData);
+
+            var x = d3.scaleBand().domain(activeMonths).range([0, iW]).padding(0.3);
+            var yMin = d3.min(series, function(s) { return d3.min(s, function(d) { return d[0]; }); });
+            var yMax = d3.max(series, function(s) { return d3.max(s, function(d) { return d[1]; }); });
+            var y = d3.scaleLinear().domain([yMin, yMax]).nice().range([iH, 0]);
+
+            g.append('g').attr('transform', 'translate(0,' + iH + ')')
+                .call(d3.axisBottom(x).tickSize(0)).select('.domain').remove();
+            g.append('g').call(d3.axisLeft(y).ticks(5).tickFormat(function(d) { return d >= 0 ? '+$' + d : '-$' + Math.abs(d); }))
+                .select('.domain').remove();
+            g.selectAll('text').attr('fill', 'var(--dim)').attr('font-size', '9px');
+            g.selectAll('.tick line').attr('stroke', '#eee');
+            g.append('line').attr('x1', 0).attr('x2', iW).attr('y1', y(0)).attr('y2', y(0))
+                .attr('stroke', 'var(--border)').attr('stroke-width', 0.5);
+
+            series.forEach(function(s) {
+                g.selectAll('.bar-' + s.key).data(s).join('rect')
+                    .attr('x', function(d) { return x(d.data.month); })
+                    .attr('y', function(d) { return y(d[1]); })
+                    .attr('height', function(d) { return Math.abs(y(d[0]) - y(d[1])); })
+                    .attr('width', x.bandwidth())
+                    .attr('fill', colors[s.key]);
+            });
+
+            var legend = svg.append('g').attr('transform', 'translate(' + margin.left + ',5)');
+            [{ key: 'lp', label: 'LP Rebalancing' }, { key: 'arb', label: 'Arbitrage' }, { key: 'perp', label: 'Perpetuals' }].forEach(function(item, i) {
+                var lg = legend.append('g').attr('transform', 'translate(' + (i * 130) + ',0)');
+                lg.append('rect').attr('width', 8).attr('height', 8).attr('fill', colors[item.key]);
+                lg.append('text').attr('x', 12).attr('y', 8).attr('font-size', '9px').attr('fill', 'var(--dim)').text(item.label);
+            });
+        }
+
+        // Load from API, fall back to hardcoded
+        (async function() {
+            var entries = await HistoryService.fetchExecutionLog(500);
+            var stratConfig = await HistoryService.fetchStrategyConfig();
+            var breakdown = entries ? HistoryService.computeStrategyBreakdown(entries, stratConfig) : null;
+            var monthly = entries ? HistoryService.computeMonthlyStrategy(entries) : null;
+            renderStrategyCards(breakdown || fallbackStrategies);
+            if (monthly) { renderMonthlyChart(monthly); } else { renderEmptyMonthlyChart(); }
+        })();
+    })();
+    </script>
+    <script>
+    (function() {
+        // Agent Attribution — tries /agents/status API, no hardcoded fallback
+        var fallbackAgents = [];
+
+        function renderAgentTable(agents) {
+            var tbody = document.getElementById('attrBody');
+            tbody.innerHTML = '';
+            if (!agents || agents.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" style="padding:2rem;text-align:center;color:var(--dim);font-size:0.65rem;font-family:var(--font-mono)">No trade history available</td></tr>';
+                return;
+            }
+            var maxAbsPnl = 1;
+            agents.forEach(function(a) { var v = Math.abs(a.pnl || 0); if (v > maxAbsPnl) maxAbsPnl = v; });
+            agents.forEach(function(a) {
+                var pnl = a.pnl || 0;
+                var pnlClass = pnl >= 0 ? 'text-green' : 'text-red';
+                var barPct = (Math.abs(pnl) / maxAbsPnl * 50).toFixed(1);
+                var barClass = pnl >= 0 ? 'positive' : 'negative';
+                var pnlStr = (pnl >= 0 ? '+' : '') + '$' + pnl.toLocaleString('en-US', { minimumFractionDigits: 2 });
+                var wrStr = a.role === 'Decision' && a.name === 'Risk Manager' ? '—' : (a.winRate || 0) + '%';
+                var signalInfo = a.signal ? ' · ' + a.signal : '';
+                tbody.innerHTML += '<tr>' +
+                    '<td>' + a.name + '</td>' +
+                    '<td><span class="agent-role">' + a.role + '</span></td>' +
+                    '<td>' + (a.trades || 0) + '</td>' +
+                    '<td>' + wrStr + signalInfo + '</td>' +
+                    '<td class="' + pnlClass + '">' + pnlStr + '</td>' +
+                    '<td class="attr-bar-cell"><div class="attr-bar"><div class="attr-bar-fill ' + barClass + '" style="width:' + barPct + '%"></div></div></td>' +
+                    '</tr>';
+            });
+        }
+
+        (async function() {
+            var agentStatus = await HistoryService.fetchAgentStatus();
+            var attribution = agentStatus ? HistoryService.buildAgentAttribution(agentStatus) : null;
+            renderAgentTable(attribution || fallbackAgents);
+        })();
+
+        // Trade Decision Log — fetched from /execution/log
+        const tierLabels = { hot: 'HOT', warm: 'WARM', cold: 'COLD' };
+        const tradeLog = document.getElementById('tradeLog');
+        const stratNames = { arbitrage: 'Arbitrage', lp_rebalancing: 'LP Rebalancing', perpetuals: 'Perpetuals' };
+
+        function renderTradeLog(entries) {
+            tradeLog.textContent = '';
+            entries.forEach(function(e) {
+                var pnl = e.pnl != null ? e.pnl : 0;
+                var pnlClass = pnl >= 0 ? 'text-green' : 'text-red';
+                var pnlStr = (pnl >= 0 ? '+' : '') + '$' + pnl.toFixed(2);
+                var ts = new Date(e.timestamp);
+                var daysAgo = Math.floor((Date.now() - ts) / 86400000);
+                var tier = daysAgo <= 7 ? 'hot' : daysAgo <= 90 ? 'warm' : 'cold';
+                var dateStr = ts.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                var side = (e.direction === 'buy' ? 'LONG' : 'SHORT');
+                var pair = e.token || 'SOL/USDC';
+                var strat = stratNames[e.strategy] || e.strategy || 'Spot';
+                var confidence = e.confidence || '—';
+
+                var entry = document.createElement('div');
+                entry.className = 'trade-entry';
+                entry.onclick = function() { this.classList.toggle('open'); };
+
+                var head = document.createElement('div');
+                head.className = 'trade-head';
+                var pairSpan = document.createElement('span');
+                pairSpan.className = 'trade-pair';
+                pairSpan.textContent = pair + ' ';
+                var sideSpan = document.createElement('span');
+                sideSpan.style.cssText = 'font-weight:400;font-size:0.65rem;color:var(--dim)';
+                sideSpan.textContent = side;
+                pairSpan.appendChild(sideSpan);
+                var resultSpan = document.createElement('span');
+                resultSpan.className = 'trade-result ' + pnlClass;
+                resultSpan.textContent = pnlStr;
+                head.appendChild(pairSpan);
+                head.appendChild(resultSpan);
+
+                var details = document.createElement('div');
+                details.className = 'trade-details';
+                [strat, dateStr, 'Confidence: ' + confidence + '%'].forEach(function(t) {
+                    var s = document.createElement('span');
+                    s.textContent = t;
+                    details.appendChild(s);
+                });
+                var badge = document.createElement('span');
+                badge.className = 'tier-badge ' + tier;
+                badge.textContent = tierLabels[tier];
+                details.appendChild(badge);
+
+                var reasoning = document.createElement('div');
+                reasoning.className = 'trade-reasoning';
+                reasoning.textContent = 'Strategy: ' + strat + '. Amount: $' + (e.amount || 0).toFixed(2) + ' at $' + (e.price_usd || 0).toFixed(2) + '. Confidence: ' + confidence + '%.';
+
+                entry.appendChild(head);
+                entry.appendChild(details);
+                entry.appendChild(reasoning);
+                tradeLog.appendChild(entry);
+            });
+        }
+
+        (async function loadTradeLog() {
+            var entries = await HistoryService.fetchExecutionLog(50);
+            if (entries && entries.length > 0) {
+                renderTradeLog(entries);
+            } else {
+                tradeLog.innerHTML = '<div style="padding:1.5rem;text-align:center;color:var(--dim);font-size:0.6rem;font-family:var(--font-mono)">No trade history available</div>';
+            }
+        })();
+    })();
+    </script>
+    <script>
+    (function() {
+        // Analyst Report Archive — fetched from /narrator/briefing
+        var reportList = document.getElementById('reportList');
+
+        function renderReports(reports) {
+            reportList.textContent = '';
+            reports.forEach(function(r) {
+                var item = document.createElement('div');
+                item.className = 'report-item';
+                var typeSpan = document.createElement('span');
+                typeSpan.className = 'report-type';
+                typeSpan.textContent = r.type;
+                var bodySpan = document.createElement('span');
+                bodySpan.className = 'report-body';
+                bodySpan.textContent = r.output;
+                var timeSpan = document.createElement('span');
+                timeSpan.className = 'report-time';
+                timeSpan.textContent = r.timeStr;
+                item.appendChild(typeSpan);
+                item.appendChild(bodySpan);
+                item.appendChild(timeSpan);
+                reportList.appendChild(item);
+            });
+        }
+
+        (async function loadReports() {
+            var briefing = await HistoryService.fetchBriefing();
+            if (briefing && briefing.sections) {
+                var reports = briefing.sections.map(function(s) {
+                    return { type: s.category || 'General', output: s.summary || s.text || '', timeStr: 'now' };
+                });
+                if (reports.length > 0) { renderReports(reports); return; }
+            }
+            reportList.innerHTML = '<div style="padding:1.5rem;text-align:center;color:var(--dim);font-size:0.6rem;font-family:var(--font-mono)">No analyst reports available</div>';
+        })();
+
+        // Debate Transcript Archive — fetched from /guardian/debates/recent
+        var debateList = document.getElementById('debateList');
+
+        function renderDebates(debates) {
+            debateList.textContent = '';
+            debates.forEach(function(d) {
+                var ts = d.timestamp ? new Date(d.timestamp) : new Date();
+                var dateStr = ts.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                var pair = d.token ? d.token + '/USDC' : 'SOL/USDC';
+                var action = d.strategy || d.action || 'Trade';
+                var verdict = d.verdict || (d.risk_score && d.risk_score < 75 ? 'approved' : 'rejected');
+                var verdictClass = verdict === 'approved' ? 'approved' : verdict === 'rejected' ? 'rejected' : 'modified';
+                var confidence = d.confidence || 70;
+
+                var rounds = d.rounds || [
+                    { speaker: 'Trader', text: 'Opportunity identified — ' + confidence + '% confidence.' },
+                    { speaker: 'Risk Mgr', text: verdict === 'rejected' ? 'Position size exceeds risk limits.' : 'Acceptable risk profile.' },
+                    { speaker: 'Trader', text: verdict === 'rejected' ? 'Acknowledged risk.' : 'Confirmed entry parameters.' },
+                    { speaker: 'PM', text: verdict === 'approved' ? 'Approved. Execute.' : verdict === 'rejected' ? 'Vetoed.' : 'Approved with modifications.' },
+                ];
+
+                var item = document.createElement('div');
+                item.className = 'debate-item';
+
+                var header = document.createElement('div');
+                header.className = 'debate-header';
+                var topic = document.createElement('span');
+                topic.className = 'debate-topic';
+                topic.textContent = pair + ' — ' + action;
+                var rightDiv = document.createElement('div');
+                rightDiv.style.cssText = 'display:flex;gap:0.5rem;align-items:center';
+                var dateSpan = document.createElement('span');
+                dateSpan.style.cssText = 'font-size:0.55rem;color:var(--dim)';
+                dateSpan.textContent = dateStr;
+                var verdictSpan = document.createElement('span');
+                verdictSpan.className = 'debate-verdict ' + verdictClass;
+                verdictSpan.textContent = verdict.toUpperCase();
+                rightDiv.appendChild(dateSpan);
+                rightDiv.appendChild(verdictSpan);
+                header.appendChild(topic);
+                header.appendChild(rightDiv);
+
+                var roundsDiv = document.createElement('div');
+                roundsDiv.className = 'debate-rounds';
+                var roundLabels = ['R1', 'R2', 'R3', 'Final'];
+                rounds.forEach(function(r, idx) {
+                    if (idx > 0) roundsDiv.appendChild(document.createElement('br'));
+                    var label = document.createElement('span');
+                    label.className = 'debate-round-label';
+                    label.textContent = (roundLabels[idx] || 'R' + (idx + 1)) + ' ' + r.speaker + ': ';
+                    roundsDiv.appendChild(label);
+                    roundsDiv.appendChild(document.createTextNode(r.text));
+                });
+
+                item.appendChild(header);
+                item.appendChild(roundsDiv);
+                debateList.appendChild(item);
+            });
+        }
+
+        (async function loadDebates() {
+            var transcripts = await HistoryService.fetchRecentDebates(20);
+            if (transcripts && transcripts.length > 0) {
+                renderDebates(transcripts);
+            } else {
+                debateList.innerHTML = '<div style="padding:1.5rem;text-align:center;color:var(--dim);font-size:0.6rem;font-family:var(--font-mono)">No debate transcripts available</div>';
+            }
+        })();
+    })();
+    </script>
+    <script>
+    // Overlay real execution stats on top bar when API is available
+    (async function() {
+        var stats = await HistoryService.fetchExecutionStats();
+        if (!stats) return;
+        var total = stats.total_trades || 0;
+        var wins = stats.successful || 0;
+        if (total > 0) {
+            var el = document.getElementById('statWinRate');
+            if (el) el.textContent = (wins / total * 100).toFixed(1) + '%';
+        }
+    })();
+    </script>
+    <script src="js/ticker.js"></script>
+    <script src="js/wallet.js"></script>
+    <script src="js/toast.js"></script>
+</body>
+</html>

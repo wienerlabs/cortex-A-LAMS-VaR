@@ -161,20 +161,40 @@ function applyRegimeResult(maxIdx, probs) {
 }
 
 async function detectRegime() {
-    // Try backend first
+    // Try backend /regime/current first (returns actual regime probabilities)
+    try {
+        if (typeof CortexAPI === 'undefined') throw new Error('CortexAPI not loaded');
+        const current = await CortexAPI.get('/regime/current?token=SOL');
+        if (current && current.regime_probs && current.regime_probs.length > 0) {
+            // Backend may have different number of states — map to 5-state Wyckoff
+            var backendProbs = current.regime_probs;
+            var probs = [0.1, 0.1, 0.1, 0.1, 0.1];
+            for (var i = 0; i < Math.min(backendProbs.length, 5); i++) {
+                probs[i] = backendProbs[i] || 0.1;
+            }
+            probs = normalize(probs);
+            var maxIdx = probs.indexOf(Math.max(...probs));
+            console.log('[REGIME] Synced from backend /regime/current');
+            applyRegimeResult(maxIdx, probs);
+            return;
+        }
+    } catch (e) {
+        console.debug('[REGIME] /regime/current unavailable:', e.message);
+    }
+
+    // Try /regime/transition-alert as second backend option
     try {
         if (typeof CortexAPI === 'undefined') throw new Error('CortexAPI not loaded');
         const data = await CortexAPI.get('/regime/transition-alert?token=SOL');
         if (data && data.current_regime !== undefined) {
-            // Backend returns regime index (0-based); map to 5-state Wyckoff
-            // Backend regime states may differ from UI's 5-state model — map safely
             var idx = data.current_regime;
             if (idx >= 0 && idx < REGIME_STATES.length) {
                 var probs = [0.1, 0.1, 0.1, 0.1, 0.1];
-                probs[idx] = 1 - data.transition_probability;
+                probs[idx] = 1 - (data.transition_probability || 0.3);
                 if (data.most_likely_next_regime >= 0 && data.most_likely_next_regime < REGIME_STATES.length) {
                     probs[data.most_likely_next_regime] = data.next_regime_probability || 0.1;
                 }
+                console.log('[REGIME] Synced from backend /regime/transition-alert');
                 applyRegimeResult(idx, normalize(probs));
                 return;
             }
@@ -300,7 +320,7 @@ function updateAgentsForRegime() {
     if (regime === 'MARKUP') {
         mom.signal = 'STRONG LONG';
         mom.signalClass = 'text-green';
-        mom.confidence = Math.min(95, 75 + Math.round(conf * 20)) + '%';
+        mom.confidence = Math.min(95, Math.round(conf * 100 * 0.85 + 15)) + '%';
         mom.regimeAdj = 'ACTIVE';
         mom.regimeAdjClass = 'text-green';
         mom.analysis = 'Regime: MARKUP — strong trend-following conditions. Momentum signals amplified. ' +
@@ -308,7 +328,7 @@ function updateAgentsForRegime() {
     } else if (regime === 'DISTRIBUTION' || regime === 'MARKDOWN') {
         mom.signal = 'NEUTRAL';
         mom.signalClass = 'text-dim';
-        mom.confidence = Math.max(40, 70 - Math.round(conf * 25)) + '%';
+        mom.confidence = Math.max(30, Math.round((1 - conf) * 100 * 0.6 + 20)) + '%';
         mom.regimeAdj = 'ACTIVE';
         mom.regimeAdjClass = 'text-red';
         mom.analysis = 'Regime: ' + regime + ' — momentum signals weakened. Trend exhaustion detected. ' +
@@ -316,7 +336,7 @@ function updateAgentsForRegime() {
     } else {
         mom.signal = 'LONG';
         mom.signalClass = 'text-green';
-        mom.confidence = '72%';
+        mom.confidence = Math.min(85, Math.round(conf * 100 * 0.7 + 25)) + '%';
         mom.regimeAdj = 'ON';
         mom.regimeAdjClass = 'text-green';
         mom.analysis = 'Regime: ' + regime + '. Standard momentum scanning active on SOL/USDC. ' +
@@ -329,7 +349,7 @@ function updateAgentsForRegime() {
         mr.status = 'ACTIVE';
         mr.signal = 'ACTIVE SCAN';
         mr.signalClass = 'text-green';
-        mr.confidence = Math.min(90, 70 + Math.round(conf * 20)) + '%';
+        mr.confidence = Math.min(92, Math.round(conf * 100 * 0.8 + 20)) + '%';
         mr.regimeAdj = 'ACTIVE';
         mr.regimeAdjClass = 'text-green';
         mr.analysis = 'Regime: ACCUMULATION — ideal for mean reversion. Range-bound conditions detected. ' +
@@ -337,6 +357,7 @@ function updateAgentsForRegime() {
     } else if (regime === 'CRISIS') {
         mr.signal = 'PAUSED';
         mr.signalClass = 'text-red';
+        mr.confidence = Math.max(15, Math.round((1 - conf) * 100 * 0.4)) + '%';
         mr.regimeAdj = 'ACTIVE';
         mr.regimeAdjClass = 'text-red';
         mr.analysis = 'Regime: CRISIS — mean reversion paused. Extreme volatility invalidates reversion models. ' +
@@ -344,22 +365,31 @@ function updateAgentsForRegime() {
     } else {
         mr.signal = 'SHORT';
         mr.signalClass = 'text-red';
-        mr.confidence = '73%';
+        mr.confidence = Math.min(82, Math.round(conf * 100 * 0.65 + 25)) + '%';
         mr.regimeAdj = 'ON';
         mr.regimeAdjClass = 'text-green';
         mr.analysis = 'Regime: ' + regime + '. Standard mean reversion scanning. ' +
             'SOL/USDC monitored for Bollinger Band extremes and Z-score deviations.';
     }
 
-    // Sentiment Agent — regime-aware analysis text
+    // Sentiment Agent — regime-aware analysis and confidence
     const sent = AGENTS_DATA.sentiment;
+    var sentBias = getSentimentBias();
+    sent.confidence = Math.min(88, Math.round(Math.abs(sentBias) * 40 + conf * 100 * 0.5 + 20)) + '%';
     sent.analysis = 'Regime: ' + regime + '. Social sentiment analysis active. ' +
-        'News sentiment bias: ' + (getSentimentBias() > 0 ? 'bullish' : getSentimentBias() < 0 ? 'bearish' : 'neutral') +
+        'News sentiment bias: ' + (sentBias > 0 ? 'bullish' : sentBias < 0 ? 'bearish' : 'neutral') +
         '. Monitoring Twitter, news feeds, and on-chain social signals for SOL.';
+
+    // Risk Agent confidence — higher in volatile regimes
+    risk.confidence = (regime === 'CRISIS' || regime === 'MARKDOWN')
+        ? Math.min(95, Math.round(conf * 100 * 0.9 + 10)) + '%'
+        : Math.min(80, Math.round(conf * 100 * 0.6 + 25)) + '%';
 
     // Arbitrage Agent — minimal regime impact
     const arb = AGENTS_DATA.arbitrage;
+    arb.confidence = Math.min(85, Math.round(conf * 100 * 0.55 + 30)) + '%';
     if (regime === 'CRISIS') {
+        arb.confidence = Math.min(70, Math.round(conf * 100 * 0.4 + 20)) + '%';
         arb.analysis = 'Regime: CRISIS — elevated spreads detected across DEXs. ' +
             'Arbitrage opportunities increasing but execution risk higher due to volatility.';
     } else {

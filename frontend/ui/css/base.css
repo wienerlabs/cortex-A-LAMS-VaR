@@ -1,0 +1,120 @@
+@font-face {
+    font-family: "Alliance No.1";
+    src: url("../assets/fonts/Degarism Studio - Alliance No.1 Light.otf") format("opentype");
+    font-weight: 300;
+    font-style: normal;
+    font-display: swap;
+}
+@font-face {
+    font-family: "Alliance No.2";
+    src: url("../assets/fonts/Degarism Studio - Alliance No.2 Light.otf") format("opentype");
+    font-weight: 300;
+    font-style: normal;
+    font-display: swap;
+}
+
+:root {
+    --bg: #ffffff;
+    --fg: #080808;
+    --dim: #222222;
+    --border: #000000;
+    --accent: #000000;
+    --green: #00aa00;
+    --red: #cc0000;
+    --yellow: #cc8800;
+    --blue: #0066cc;
+    --muted: #f5f5f5;
+    --hover: #f0f0f0;
+    --subtle: #fafafa;
+    --font-main: "Alliance No.1", sans-serif;
+    --font-mono: "Alliance No.2", sans-serif;
+    --spacing: 1rem;
+    --radius: 0;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    -webkit-font-smoothing: antialiased;
+}
+
+body {
+    background-color: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-mono);
+    font-size: 15px;
+    line-height: 1.4;
+    overflow-x: hidden;
+    width: 100vw;
+    min-height: 100vh;
+}
+
+a { color: var(--fg); text-decoration: none; }
+a:hover { color: var(--fg); }
+
+.serif { font-family: var(--font-main); }
+.mono { font-family: var(--font-mono); }
+.uppercase { text-transform: uppercase; }
+.capitalize { text-transform: capitalize; }
+.text-green { color: var(--green); }
+.text-red { color: var(--red); }
+.text-dim { color: var(--dim); }
+.text-center { text-align: center; }
+.text-right { text-align: right; }
+.text-xs { font-size: 0.55rem; }
+.text-sm { font-size: 0.65rem; }
+.text-base { font-size: 0.75rem; }
+.text-lg { font-size: 0.9rem; }
+.text-xl { font-size: 1.2rem; }
+.text-2xl { font-size: 1.5rem; }
+.text-3xl { font-size: 2rem; }
+.text-4xl { font-size: 3rem; }
+.font-bold { font-weight: 600; }
+.font-heavy { font-weight: 700; }
+
+.border-b { border-bottom: 1px solid var(--border); }
+.border-t { border-top: 1px solid var(--border); }
+.border-r { border-right: 1px solid var(--border); }
+.border-l { border-left: 1px solid var(--border); }
+.border { border: 1px solid var(--border); }
+
+.pad { padding: var(--spacing); }
+.pad-sm { padding: 0.5rem; }
+.pad-lg { padding: 1.5rem; }
+.pad-x { padding-left: var(--spacing); padding-right: var(--spacing); }
+.pad-y { padding-top: var(--spacing); padding-bottom: var(--spacing); }
+
+.flex { display: flex; }
+.flex-col { display: flex; flex-direction: column; }
+.flex-center { display: flex; align-items: center; justify-content: center; }
+.flex-between { display: flex; justify-content: space-between; align-items: center; }
+.flex-1 { flex: 1; }
+.gap-xs { gap: 0.25rem; }
+.gap-sm { gap: 0.5rem; }
+.gap { gap: var(--spacing); }
+.gap-lg { gap: 1.5rem; }
+
+.grid { display: grid; }
+.hidden { display: none; }
+.relative { position: relative; }
+.sticky { position: sticky; top: 0; }
+.overflow-hidden { overflow: hidden; }
+.overflow-auto { overflow-y: auto; }
+.min-h-0 { min-height: 0; }
+.w-full { width: 100%; }
+.h-full { height: 100%; }
+.cursor-pointer { cursor: pointer; }
+.pointer-events-none { pointer-events: none; }
+
+.bg-muted { background: var(--muted); }
+.bg-subtle { background: var(--subtle); }
+.bg-hover:hover { background: var(--hover); }
+
+.truncate {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.transition { transition: all 0.2s; }

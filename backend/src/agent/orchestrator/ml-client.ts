@@ -107,6 +107,7 @@ export class MLAgentClient {
         ...options,
         headers: {
           "Content-Type": "application/json",
+          ...(process.env.CORTEX_API_KEY ? { "X-API-Key": process.env.CORTEX_API_KEY } : {}),
           ...correlationHeaders,
           ...options.headers,
         },

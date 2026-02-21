@@ -1,0 +1,109 @@
+/* ===============================================
+   History — Page-specific Styles
+   =============================================== */
+
+/* Section Header (page-level divider) */
+.section-header {
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.7rem;
+    text-transform: capitalize;
+    background: #f5f5f5;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+/* Stats Grid */
+.stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); border-bottom: 1px solid var(--border); }
+.stat-cell { padding: 1rem; border-right: 1px solid var(--border); text-align: center; }
+.stat-cell:last-child { border-right: none; }
+.stat-label { font-size: 0.6rem; text-transform: uppercase; color: var(--dim); margin-bottom: 0.25rem; }
+.stat-value { font-family: var(--font-main); font-size: 1.1rem; font-weight: 600; }
+
+/* Calendar */
+.calendar-section { padding: 1.5rem; }
+.calendar-container { overflow-x: auto; }
+.calendar-container svg { font-family: var(--font-mono); display: block; }
+.calendar-container svg text { fill: var(--dim); font-size: 10px; }
+.cal-tooltip { position: fixed; padding: 8px 12px; background: var(--fg); color: var(--bg); font-size: 0.7rem; font-family: var(--font-mono); pointer-events: none; opacity: 0; transition: opacity 0.15s; z-index: 1000; line-height: 1.6; }
+.cal-legend { display: flex; align-items: center; gap: 6px; padding: 0.75rem 1rem; font-size: 0.65rem; color: var(--dim); border-top: 1px solid var(--border); }
+.cal-legend-bar { display: flex; gap: 2px; }
+.cal-legend-bar span { width: 12px; height: 12px; display: block; }
+.year-selector { display: flex; gap: 0.25rem; }
+.year-selector .btn { font-size: 0.65rem; padding: 3px 10px; border: 1px solid var(--border); background: var(--bg); cursor: pointer; font-family: var(--font-mono); transition: all 0.2s; }
+.year-selector .btn:hover, .year-selector .btn.active { background: var(--fg); color: var(--bg); }
+
+/* Strategy Breakdown */
+.strat-grid { display: grid; grid-template-columns: repeat(3, 1fr); border-bottom: 1px solid var(--border); }
+.strat-card { padding: 1rem; border-right: 1px solid var(--border); }
+.strat-card:last-child { border-right: none; }
+.strat-name { font-size: 0.6rem; text-transform: uppercase; color: var(--dim); margin-bottom: 0.5rem; display: flex; justify-content: space-between; align-items: center; }
+.strat-alloc { font-size: 0.55rem; padding: 2px 6px; border: 1px solid var(--border); }
+.strat-pnl { font-family: var(--font-main); font-size: 1.1rem; font-weight: 600; margin-bottom: 0.5rem; }
+.strat-bar { height: 4px; background: #eee; margin-bottom: 0.5rem; }
+.strat-bar-fill { height: 100%; transition: width 0.6s ease; }
+.strat-meta { font-size: 0.6rem; color: var(--dim); display: flex; justify-content: space-between; }
+
+/* Agent Attribution Table */
+.attr-table { width: 100%; border-collapse: collapse; font-size: 0.7rem; }
+.attr-table th { padding: 0.5rem 1rem; text-align: left; font-weight: 400; text-transform: uppercase; font-size: 0.6rem; color: var(--dim); border-bottom: 1px solid var(--border); background: #fafafa; }
+.attr-table td { padding: 0.5rem 1rem; border-bottom: 1px solid #eee; }
+.attr-table tr:last-child td { border-bottom: 1px solid var(--border); }
+.attr-table .agent-role { font-size: 0.55rem; color: var(--dim); }
+.attr-bar-cell { width: 120px; }
+.attr-bar { height: 6px; background: #eee; position: relative; }
+.attr-bar-fill { height: 100%; position: absolute; top: 0; }
+.attr-bar-fill.positive { left: 50%; background: var(--green); }
+.attr-bar-fill.negative { right: 50%; background: var(--red); }
+
+/* Trade Decision Log */
+.trade-log { max-height: 400px; overflow-y: auto; }
+.trade-entry { padding: 0.75rem 1rem; border-bottom: 1px solid #eee; cursor: pointer; transition: background 0.15s; }
+.trade-entry:hover { background: #fafafa; }
+.trade-entry:last-child { border-bottom: 1px solid var(--border); }
+.trade-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem; }
+.trade-pair { font-family: var(--font-main); font-size: 0.8rem; font-weight: 600; }
+.trade-result { font-size: 0.7rem; font-weight: 600; }
+.trade-details { font-size: 0.6rem; color: var(--dim); display: flex; gap: 1rem; flex-wrap: wrap; }
+.trade-reasoning { display: none; margin-top: 0.5rem; padding: 0.5rem 0.75rem; background: #f9f9f9; border-left: 2px solid var(--border); font-size: 0.65rem; line-height: 1.6; color: var(--dim); }
+.trade-entry.open .trade-reasoning { display: block; }
+
+/* Storage Tier Badges */
+.tier-badge { font-size: 0.55rem; padding: 2px 8px; text-transform: uppercase; letter-spacing: 0.5px; border: 1px solid; }
+.tier-badge.hot { border-color: var(--red); color: var(--red); }
+.tier-badge.warm { border-color: #cc8800; color: #cc8800; }
+.tier-badge.cold { border-color: var(--dim); color: var(--dim); }
+.tier-badges { display: flex; gap: 0.5rem; align-items: center; }
+
+/* Analyst Reports */
+.report-list { max-height: 300px; overflow-y: auto; }
+.report-item { padding: 0.75rem 1rem; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; }
+.report-item:last-child { border-bottom: 1px solid var(--border); }
+.report-type { font-size: 0.55rem; text-transform: uppercase; padding: 2px 6px; border: 1px solid var(--border); white-space: nowrap; }
+.report-body { flex: 1; font-size: 0.65rem; color: var(--dim); line-height: 1.5; }
+.report-time { font-size: 0.55rem; color: var(--dim); white-space: nowrap; }
+
+/* Debate Archive */
+.debate-list { max-height: 350px; overflow-y: auto; }
+.debate-item { padding: 0.75rem 1rem; border-bottom: 1px solid #eee; }
+.debate-item:last-child { border-bottom: 1px solid var(--border); }
+.debate-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem; }
+.debate-topic { font-family: var(--font-main); font-size: 0.75rem; font-weight: 600; }
+.debate-verdict { font-size: 0.6rem; padding: 2px 8px; border: 1px solid; }
+.debate-verdict.approved { border-color: var(--green); color: var(--green); }
+.debate-verdict.rejected { border-color: var(--red); color: var(--red); }
+.debate-verdict.modified { border-color: #cc8800; color: #cc8800; }
+.debate-rounds { font-size: 0.6rem; color: var(--dim); line-height: 1.6; }
+.debate-round-label { font-weight: 600; color: var(--fg); }
+
+/* Strategy Chart */
+.strat-chart-section { padding: 1rem; border-bottom: 1px solid var(--border); }
+#strategyChart { width: 100%; height: 220px; }
+
+/* Responsive */
+@media (max-width: 768px) {
+    .stats-grid { grid-template-columns: repeat(2, 1fr); }
+    .strat-grid { grid-template-columns: 1fr; }
+    .strat-card { border-right: none; border-bottom: 1px solid var(--border); }
+}

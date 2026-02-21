@@ -75,6 +75,8 @@ async def get_order_book(
         spread_bps=result["spread_bps"],
         bid_depth=result["bid_depth"],
         ask_depth=result["ask_depth"],
+        bids=result.get("bids", []),
+        asks=result.get("asks", []),
         timestamp=datetime.now(timezone.utc),
     )
 

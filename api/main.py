@@ -40,6 +40,16 @@ async def lifespan(app: FastAPI):
     if total:
         logger.info("Restored %d model state(s) from Redis", total)
 
+    # Restore execution log from Redis
+    from cortex.execution import restore_execution_log
+    exec_count = await restore_execution_log()
+    if exec_count:
+        logger.info("Restored %d execution log entries from Redis", exec_count)
+
+    # Restore strategy toggles and trade mode from Redis
+    from api.routes.strategies import restore_strategy_state
+    await restore_strategy_state()
+
     # Restore singleton state from Redis snapshots
     from cortex.circuit_breaker import restore_cb_state
     from cortex.guardian import restore_kelly_state
@@ -173,7 +183,55 @@ _ui_dir = _frontend_dir / "ui"
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "cortex-risk-engine", "version": API_VERSION}
+    checks = {}
+    overall = "ok"
+
+    # Redis persistence check
+    try:
+        from cortex.persistence import _redis_available
+        checks["redis"] = "connected" if _redis_available else "disconnected"
+    except Exception:
+        checks["redis"] = "unavailable"
+
+    # Guardian check
+    try:
+        from cortex.guardian import _cache
+        checks["guardian"] = "ready"
+        checks["guardian_cache_size"] = len(_cache) if hasattr(_cache, '__len__') else 0
+    except Exception:
+        checks["guardian"] = "unavailable"
+
+    # Circuit breaker check
+    try:
+        from cortex.circuit_breaker import get_outcome_states
+        states = get_outcome_states()
+        tripped = [s for s in states if s.get("state") == "open"]
+        checks["circuit_breakers"] = {"total": len(states), "tripped": len(tripped)}
+        if tripped:
+            overall = "degraded"
+    except Exception:
+        checks["circuit_breakers"] = "unavailable"
+
+    # RPC health check
+    try:
+        from cortex.data.rpc_failover import get_rpc_health
+        rpc = get_rpc_health()
+        checks["rpc"] = rpc if rpc else "no_data"
+    except Exception:
+        checks["rpc"] = "unavailable"
+
+    # Execution engine status
+    try:
+        from cortex.config import EXECUTION_ENABLED, SIMULATION_MODE, TRADING_MODE
+        checks["execution"] = {
+            "enabled": EXECUTION_ENABLED,
+            "simulation_mode": SIMULATION_MODE,
+            "trading_mode": TRADING_MODE,
+        }
+    except Exception:
+        checks["execution"] = "unavailable"
+
+    return {"status": overall, "service": "cortex-risk-engine", "version": API_VERSION, "checks": checks}
 
 
 @app.get("/", include_in_schema=False)

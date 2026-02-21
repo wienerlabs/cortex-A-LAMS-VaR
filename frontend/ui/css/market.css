@@ -1,0 +1,88 @@
+/* === MARKET PAGE STYLES === */
+
+.market-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    border-bottom: 1px solid var(--border);
+}
+
+.market-grid > div { border-right: 1px solid var(--border); }
+.market-grid > div:last-child { border-right: none; }
+
+.widget-cell { padding: 0; overflow: hidden; border: 1px solid var(--fg); }
+.widget-cell-quotes { height: 550px; }
+
+.chart-section { height: 700px; position: relative; border-bottom: 1px solid var(--border); }
+
+.chart-section .tradingview-widget-container,
+.chart-section .tradingview-widget-container__widget {
+    width: 100% !important;
+    height: 100% !important;
+}
+
+.heatmap-section { height: 600px; position: relative; }
+
+.heatmap-section .tradingview-widget-container,
+.heatmap-section .tradingview-widget-container__widget {
+    width: 100% !important;
+    height: 100% !important;
+}
+
+.summary-bar {
+    border-bottom: 1px solid var(--fg);
+    padding: 0;
+}
+
+.tradingview-widget-copyright { display: none !important; }
+
+.widget-cell iframe,
+.widget-cell div {
+    border-radius: 0 !important;
+}
+
+.widget-cell iframe {
+    border: 1px solid var(--fg) !important;
+    border-radius: 0 !important;
+}
+
+.tradingview-widget-container,
+.tradingview-widget-container__widget {
+    border-radius: 0 !important;
+}
+
+/* Order Book Styles */
+.ob-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    border-bottom: 1px solid var(--border);
+}
+
+.ob-summary {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    border-bottom: 1px solid var(--border);
+}
+
+.ob-summary-cell {
+    padding: 0.6rem 1rem;
+    border-right: 1px solid var(--border);
+    text-align: center;
+}
+
+.ob-summary-cell:last-child { border-right: none; }
+
+.ob-summary-label {
+    font-size: 0.55rem;
+    text-transform: uppercase;
+    color: var(--dim);
+}
+
+.ob-summary-value {
+    font-weight: 600;
+}
+
+@media (max-width: 960px) {
+    .market-grid { grid-template-columns: 1fr; }
+    .ob-grid { grid-template-columns: 1fr; }
+    #depthChart { display: none; }
+}

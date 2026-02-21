@@ -18,6 +18,15 @@ import type { ALAMSVaRResult, ALAMSVaRConfig } from './types.js';
 
 // ============= CONFIGURATION =============
 
+const CORTEX_API_KEY = process.env.CORTEX_API_KEY || '';
+
+function cortexHeaders(json = true): Record<string, string> {
+  const h: Record<string, string> = {};
+  if (json) h['Content-Type'] = 'application/json';
+  if (CORTEX_API_KEY) h['X-API-Key'] = CORTEX_API_KEY;
+  return h;
+}
+
 const DEFAULT_ALAMS_CONFIG: ALAMSVaRConfig = {
   apiUrl: process.env.ALAMS_API_URL || 'http://localhost:8001/api/v1',
   timeoutMs: parseInt(process.env.ALAMS_VAR_TIMEOUT_MS || '5000', 10),
@@ -205,7 +214,7 @@ export class ALAMSVaRClient {
     try {
       const response = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: cortexHeaders(),
         body: JSON.stringify(body),
         signal: controller.signal,
       });

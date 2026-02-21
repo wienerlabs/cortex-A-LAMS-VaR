@@ -34,6 +34,14 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.warning("alams_restore_skipped", exc_info=True)
 
+    try:
+        from cortex.execution import restore_execution_log
+        exec_count = await restore_execution_log()
+        if exec_count:
+            logger.info("execution_log_restored", count=exec_count)
+    except Exception:
+        logger.warning("execution_log_restore_skipped", exc_info=True)
+
     yield
 
     # Shutdown

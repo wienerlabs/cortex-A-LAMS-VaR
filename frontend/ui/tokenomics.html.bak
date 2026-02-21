@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CORTEX | Tokenomics</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        @font-face {
+            font-family: "Alliance No.1";
+            src: url("assets/fonts/Degarism Studio - Alliance No.1 Light.otf") format("opentype");
+            font-weight: 300; font-style: normal; font-display: swap;
+        }
+        @font-face {
+            font-family: "Alliance No.2";
+            src: url("assets/fonts/Degarism Studio - Alliance No.2 Light.otf") format("opentype");
+            font-weight: 300; font-style: normal; font-display: swap;
+        }
+        :root {
+            --bg: #ffffff; --fg: #080808; --dim: #222222;
+            --border: #000000; --accent: #000000;
+            --green: #00aa00; --red: #cc0000;
+            --font-main: "Alliance No.1", sans-serif;
+            --font-mono: "Alliance No.2", sans-serif;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; -webkit-font-smoothing: antialiased; }
+        body { background: var(--bg); color: var(--fg); font-family: var(--font-mono); font-size: 15px; line-height: 1.4; overflow-x: hidden; }
+        .text-dim { color: var(--dim); }
+        .text-green { color: var(--green); }
+        .text-red { color: var(--red); }
+        .container { max-width: 1400px; margin: 0 auto; border-left: 1px solid var(--border); border-right: 1px solid var(--border); min-height: 100vh; }
+        header { display: grid; grid-template-columns: 1fr auto auto auto auto auto auto; border-bottom: 1px solid var(--border); }
+        .logo { font-family: var(--font-main); font-size: 1.5rem; font-weight: bold; display: flex; align-items: center; padding: 1rem; gap: 8px; }
+        .logo-img { height: 78px; width: auto; display: block; }
+        .logo span { font-size: 0.5em; font-family: var(--font-mono); color: var(--dim); }
+        .nav-item { border-left: 1px solid var(--border); display: flex; align-items: center; justify-content: center; padding: 1rem 1.5rem; text-transform: capitalize; font-size: 0.7rem; cursor: pointer; transition: background 0.2s, color 0.2s; text-decoration: none; color: var(--fg); }
+        .nav-item:hover, .nav-item.active { background: var(--fg); color: var(--bg); }
+        .section-header { padding: 0.75rem 1rem; border-bottom: 1px solid var(--border); font-size: 0.7rem; text-transform: capitalize; background: #f5f5f5; display: flex; justify-content: space-between; align-items: center; }
+        footer { border-top: 1px solid var(--border); padding: 1rem; display: flex; justify-content: space-between; font-size: 0.6rem; text-transform: uppercase; color: var(--dim); }
+        .scanline { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient(to bottom, transparent, rgba(0,0,0,0.02), transparent); pointer-events: none; animation: scanline 8s linear infinite; z-index: 100; }
+        @keyframes scanline { 0% { transform: translateY(-100%); } 100% { transform: translateY(100vh); } }
+        .wallet-connected { position: relative; }
+        .wallet-addr { font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: 0.5px; }
+        .wallet-dropdown { position: absolute; top: 100%; right: 0; background: var(--bg); border: 1px solid var(--border); min-width: 200px; z-index: 60; display: none; }
+        .wallet-dropdown.open { display: block; }
+        .wallet-dropdown-item { padding: 0.75rem 1rem; font-size: 0.7rem; text-transform: capitalize; cursor: pointer; transition: background 0.2s; display: flex; align-items: center; gap: 0.5rem; }
+        .wallet-dropdown-item:hover { background: #f0f0f0; }
+        .wallet-dropdown-item:not(:last-child) { border-bottom: 1px solid var(--border); }
+        .wallet-dropdown-item.disconnect { color: var(--red); }
+        .wallet-dropdown-item .dd-icon { font-size: 0.6rem; color: var(--dim); width: 14px; text-align: center; }
+        .wallet-dropdown-item.disconnect .dd-icon { color: var(--red); }
+        .ticker { overflow: hidden; white-space: nowrap; padding: 0.5rem 0; border-bottom: 1px solid var(--border); font-size: 0.7rem; color: var(--dim); background: #f5f5f5; }
+        .ticker-content { display: inline-block; animation: marquee 30s linear infinite; }
+        .ticker-item { display: inline-block; margin-right: 3rem; }
+        .ticker-item .price { color: var(--fg); margin-left: 0.5rem; }
+        .ticker-item .change.up { color: var(--green); }
+        .ticker-item .change.down { color: var(--red); }
+        @keyframes marquee { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
+        @media (max-width: 960px) {
+            header { grid-template-columns: 1fr auto; }
+            .nav-item:not(.active) { display: none; }
+        }
+
+        /* === TOKENOMICS STYLES === */
+        .tk-metrics { display: grid; grid-template-columns: repeat(6, 1fr); border-bottom: 1px solid var(--border); }
+        .tk-metric { padding: 1rem; border-right: 1px solid var(--border); text-align: center; }
+        .tk-metric:last-child { border-right: none; }
+        .tk-metric-label { font-size: 0.6rem; text-transform: uppercase; color: var(--dim); margin-bottom: 0.25rem; }
+        .tk-metric-value { font-family: var(--font-main); font-size: 1.2rem; font-weight: 600; }
+        .tk-metric-sub { font-size: 0.55rem; color: var(--dim); margin-top: 0.15rem; }
+
+        .tk-alloc-wrap { display: grid; grid-template-columns: 1fr 1fr; border-bottom: 1px solid var(--border); }
+        .tk-donut { padding: 1.5rem; border-right: 1px solid var(--border); display: flex; align-items: center; justify-content: center; }
+        .tk-alloc-table { padding: 0; }
+        .tk-alloc-row { display: grid; grid-template-columns: 12px 1fr 50px 60px; gap: 8px; align-items: center; padding: 0.6rem 1rem; border-bottom: 1px solid var(--border); font-size: 0.65rem; }
+        .tk-alloc-row:last-child { border-bottom: none; }
+        .tk-alloc-row.head { background: #f5f5f5; font-weight: 600; color: var(--dim); font-size: 0.6rem; }
+        .tk-alloc-dot { width: 10px; height: 10px; border-radius: 2px; }
+        .tk-alloc-pct { text-align: right; font-weight: 600; }
+        .tk-alloc-tokens { text-align: right; color: var(--dim); }
+
+        .tk-vesting-table { border-bottom: 1px solid var(--border); }
+        .tk-vest-row { display: grid; grid-template-columns: 1fr 60px 80px 1fr 120px; gap: 8px; align-items: center; padding: 0.6rem 1rem; border-bottom: 1px solid var(--border); font-size: 0.65rem; }
+        .tk-vest-row:last-child { border-bottom: none; }
+        .tk-vest-row.head { background: #f5f5f5; font-weight: 600; color: var(--dim); font-size: 0.6rem; }
+        .tk-vest-bar { height: 4px; background: #e8e8e8; position: relative; }
+        .tk-vest-bar-fill { height: 100%; transition: width 1s ease; }
+
+        .tk-gantt { padding: 1.5rem; border-bottom: 1px solid var(--border); overflow-x: auto; }
+
+        .tk-utility-grid { display: grid; grid-template-columns: repeat(4, 1fr); border-bottom: 1px solid var(--border); }
+        .tk-utility-card { padding: 1rem; border-right: 1px solid var(--border); }
+        .tk-utility-card:last-child { border-right: none; }
+        .tk-utility-idx { font-size: 0.55rem; color: var(--dim); text-transform: uppercase; margin-bottom: 0.35rem; }
+        .tk-utility-name { font-family: var(--font-main); font-size: 0.85rem; font-weight: 600; margin-bottom: 0.35rem; }
+        .tk-utility-desc { font-size: 0.6rem; color: var(--dim); line-height: 1.6; }
+
+        .tk-stack-grid { display: grid; grid-template-columns: repeat(3, 1fr); border-bottom: 1px solid var(--border); }
+        .tk-stack-item { padding: 0.75rem 1rem; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+        .tk-stack-item:nth-child(3n) { border-right: none; }
+        .tk-stack-label { font-size: 0.55rem; text-transform: uppercase; color: var(--dim); margin-bottom: 0.15rem; }
+        .tk-stack-value { font-size: 0.75rem; font-weight: 600; }
+
+        .tk-supply-section { padding: 1rem; border-bottom: 1px solid var(--border); }
+        .tk-supply-bar { height: 24px; background: #e8e8e8; position: relative; margin-bottom: 0.5rem; }
+        .tk-supply-fill { height: 100%; background: var(--fg); transition: width 2s ease; display: flex; align-items: center; justify-content: flex-end; padding-right: 8px; color: var(--bg); font-size: 0.6rem; font-weight: 600; }
+        .tk-supply-labels { display: flex; justify-content: space-between; font-size: 0.55rem; color: var(--dim); }
+
+        .tk-dex-grid { display: grid; grid-template-columns: repeat(6, 1fr); border-bottom: 1px solid var(--border); }
+        .tk-dex-item { padding: 0.75rem; text-align: center; border-right: 1px solid var(--border); font-size: 0.65rem; }
+        .tk-dex-item:last-child { border-right: none; }
+        .tk-dex-name { font-weight: 600; margin-bottom: 0.15rem; }
+        .tk-dex-type { font-size: 0.5rem; color: var(--dim); }
+
+        @media (max-width: 960px) {
+            .tk-metrics { grid-template-columns: repeat(3, 1fr); }
+            .tk-alloc-wrap { grid-template-columns: 1fr; }
+            .tk-donut { border-right: none; border-bottom: 1px solid var(--border); }
+            .tk-utility-grid { grid-template-columns: repeat(2, 1fr); }
+            .tk-stack-grid { grid-template-columns: 1fr; }
+            .tk-dex-grid { grid-template-columns: repeat(3, 1fr); }
+            .tk-vest-row { grid-template-columns: 1fr 50px 60px 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <div class="scanline"></div>
+    <div class="container">
+        <div class="ticker">
+            <div class="ticker-content" id="tickerContent">
+                <span class="ticker-item">Loading live prices...</span>
+            </div>
+        </div>
+        <header>
+            <div class="logo"><img src="assets/logos/cortex-logo-dark.png" alt="CORTEX" class="logo-img"><span>v.0.1.0</span></div>
+            <a class="nav-item" href="index.html">&#8592; Dashboard</a>
+            <a class="nav-item" href="market.html">Market Data</a>
+            <a class="nav-item" href="history.html">History</a>
+            <a class="nav-item" href="cerebral.html">Cerebral</a>
+            <div class="nav-item active">Tokenomics</div>
+        </header>
+
+        <!-- Token Details Metrics -->
+        <div class="section-header"><span>CRTX Token Details</span><span class="text-dim">SPL Token-2022 · Solana</span></div>
+        <div class="tk-metrics">
+            <div class="tk-metric">
+                <div class="tk-metric-label">Token</div>
+                <div class="tk-metric-value">CRTX</div>
+                <div class="tk-metric-sub">SPL Token-2022</div>
+            </div>
+            <div class="tk-metric">
+                <div class="tk-metric-label">Total Supply</div>
+                <div class="tk-metric-value" id="totalSupplyValue">--</div>
+                <div class="tk-metric-sub">Fixed Supply · No Inflation</div>
+            </div>
+            <div class="tk-metric">
+                <div class="tk-metric-label">Total Staked</div>
+                <div class="tk-metric-value" id="totalStakedValue">--</div>
+                <div class="tk-metric-sub" id="stakingRewardSub">Loading...</div>
+            </div>
+            <div class="tk-metric">
+                <div class="tk-metric-label">Treasury Balance</div>
+                <div class="tk-metric-value" id="treasuryBalanceValue">--</div>
+                <div class="tk-metric-sub" id="treasuryAddrSub">Loading...</div>
+            </div>
+            <div class="tk-metric">
+                <div class="tk-metric-label">Holders</div>
+                <div class="tk-metric-value" id="holderCountValue">--</div>
+                <div class="tk-metric-sub" id="holderRiskSub">Loading...</div>
+            </div>
+            <div class="tk-metric">
+                <div class="tk-metric-label">Mint Address</div>
+                <div class="tk-metric-value" id="mintAddrValue" style="font-size:0.7rem;word-break:break-all">--</div>
+                <div class="tk-metric-sub" id="mintAddrSub">On-chain</div>
+            </div>
+        </div>
+
+        <!-- Circulating Supply -->
+        <div class="section-header"><span>Circulating Supply</span><span class="text-dim" id="circSupplyPct">--</span></div>
+        <div class="tk-supply-section">
+            <div class="tk-supply-bar">
+                <div class="tk-supply-fill" id="circSupplyBar" style="width:0%"></div>
+            </div>
+            <div class="tk-supply-labels">
+                <span>0</span>
+                <span id="circSupplyLabel">-- / 100,000,000 CRTX</span>
+                <span>100M</span>
+            </div>
+        </div>
+
+        <!-- Allocation Chart + Table -->
+        <div class="section-header"><span>Token Allocation</span><span class="text-dim">6 Categories · 100M CRTX</span></div>
+        <div class="tk-alloc-wrap">
+            <div class="tk-donut" id="allocDonut"></div>
+            <div class="tk-alloc-table" id="allocTable"></div>
+        </div>
+
+        <!-- Vesting Schedule Table -->
+        <div class="section-header"><span>Vesting Schedule</span><span class="text-dim">Cliff + Linear Unlock</span></div>
+        <div class="tk-vesting-table" id="vestingTable"></div>
+
+        <!-- Vesting Timeline Gantt -->
+        <div class="section-header"><span>Vesting Timeline</span><span class="text-dim">48-Month Overview · TGE → Full Unlock</span></div>
+        <div class="tk-gantt" id="vestingGantt"></div>
+
+        <!-- Token Utility -->
+        <div class="section-header"><span>Token Utility</span><span class="text-dim">4 Core Functions</span></div>
+        <div class="tk-utility-grid">
+            <div class="tk-utility-card">
+                <div class="tk-utility-idx">Utility #1</div>
+                <div class="tk-utility-name">Governance</div>
+                <div class="tk-utility-desc">Vote on protocol parameters, fee structures, supported assets</div>
+            </div>
+            <div class="tk-utility-card">
+                <div class="tk-utility-idx">Utility #2</div>
+                <div class="tk-utility-name">Fee Sharing</div>
+                <div class="tk-utility-desc">Stake CRTX to receive share of protocol fees</div>
+            </div>
+            <div class="tk-utility-card">
+                <div class="tk-utility-idx">Utility #3</div>
+                <div class="tk-utility-name">Vault Access</div>
+                <div class="tk-utility-desc">Premium vaults require CRTX staking</div>
+            </div>
+            <div class="tk-utility-card">
+                <div class="tk-utility-idx">Utility #4</div>
+                <div class="tk-utility-name">Agent Licensing</div>
+                <div class="tk-utility-desc">AI agents stake CRTX to access infrastructure</div>
+            </div>
+        </div>
+
+        <!-- Technical Stack -->
+        <div class="section-header"><span>Technical Stack</span><span class="text-dim">Infrastructure</span></div>
+        <div class="tk-stack-grid">
+            <div class="tk-stack-item"><div class="tk-stack-label">Blockchain</div><div class="tk-stack-value">Solana</div></div>
+            <div class="tk-stack-item"><div class="tk-stack-label">Token Standard</div><div class="tk-stack-value">SPL Token-2022</div></div>
+            <div class="tk-stack-item"><div class="tk-stack-label">Smart Contracts</div><div class="tk-stack-value">Anchor (Rust)</div></div>
+            <div class="tk-stack-item"><div class="tk-stack-label">Agent Framework</div><div class="tk-stack-value">ElizaOS</div></div>
+            <div class="tk-stack-item"><div class="tk-stack-label">Execution SDK</div><div class="tk-stack-value">Solana Agent Kit</div></div>
+            <div class="tk-stack-item"><div class="tk-stack-label">Oracles</div><div class="tk-stack-value">Pyth Network</div></div>
+            <div class="tk-stack-item"><div class="tk-stack-label">Treasury</div><div class="tk-stack-value">Squads Protocol</div></div>
+            <div class="tk-stack-item"><div class="tk-stack-label">Vesting</div><div class="tk-stack-value">Streamflow</div></div>
+            <div class="tk-stack-item"><div class="tk-stack-label">Token Deployer</div><div class="tk-stack-value">SPL CLI</div></div>
+        </div>
+
+        <!-- Holder Distribution -->
+        <div class="section-header"><span>Holder Distribution</span><span class="text-dim" id="holderDistLabel">On-chain via Helius DAS</span></div>
+        <div class="tk-metrics" style="grid-template-columns: repeat(4, 1fr);">
+            <div class="tk-metric">
+                <div class="tk-metric-label">Top 10 Holders</div>
+                <div class="tk-metric-value" id="top10PctValue">--</div>
+                <div class="tk-metric-sub">% of supply</div>
+            </div>
+            <div class="tk-metric">
+                <div class="tk-metric-label">Top 50 Holders</div>
+                <div class="tk-metric-value" id="top50PctValue">--</div>
+                <div class="tk-metric-sub">% of supply</div>
+            </div>
+            <div class="tk-metric">
+                <div class="tk-metric-label">HHI Index</div>
+                <div class="tk-metric-value" id="hhiValue">--</div>
+                <div class="tk-metric-sub">Concentration index</div>
+            </div>
+            <div class="tk-metric">
+                <div class="tk-metric-label">Concentration Risk</div>
+                <div class="tk-metric-value" id="concRiskValue">--</div>
+                <div class="tk-metric-sub">Based on top-10 share</div>
+            </div>
+        </div>
+        <div id="topHoldersTable" style="border-bottom: 1px solid var(--border);"></div>
+
+        <!-- Program Addresses -->
+        <div class="section-header"><span>Program Addresses</span><span class="text-dim">On-chain</span></div>
+        <div class="tk-stack-grid" id="programAddresses">
+            <div class="tk-stack-item"><div class="tk-stack-label">Token Mint</div><div class="tk-stack-value" id="progToken" style="font-size:0.6rem;word-break:break-all">--</div></div>
+            <div class="tk-stack-item"><div class="tk-stack-label">Treasury</div><div class="tk-stack-value" id="progTreasury" style="font-size:0.6rem;word-break:break-all">--</div></div>
+            <div class="tk-stack-item"><div class="tk-stack-label">Staking</div><div class="tk-stack-value" id="progStaking" style="font-size:0.6rem;word-break:break-all">--</div></div>
+        </div>
+
+        <!-- DEX Integrations -->
+        <div class="section-header"><span>DEX Integrations</span><span class="text-dim">6 Protocols</span></div>
+        <div class="tk-dex-grid">
+            <div class="tk-dex-item"><div class="tk-dex-name">Raydium</div><div class="tk-dex-type">AMM</div></div>
+            <div class="tk-dex-item"><div class="tk-dex-name">Orca</div><div class="tk-dex-type">CLMM</div></div>
+            <div class="tk-dex-item"><div class="tk-dex-name">Jupiter</div><div class="tk-dex-type">Aggregation</div></div>
+            <div class="tk-dex-item"><div class="tk-dex-name">Drift</div><div class="tk-dex-type">Perpetuals</div></div>
+            <div class="tk-dex-item"><div class="tk-dex-name">Kamino</div><div class="tk-dex-type">Vaults</div></div>
+            <div class="tk-dex-item"><div class="tk-dex-name">MarginFi</div><div class="tk-dex-type">Lending</div></div>
+        </div>
+
+        <footer>
+            <div>CORTEX TOKENOMICS</div>
+            <div>SOLANA MAINNET</div>
+            <div>&copy;2026 WIENER LABS</div>
+        </footer>
+    </div>
+
+    <script>
+    // === TOKENOMICS DATA (from context.md lines 432-503) ===
+    const ALLOC = [
+        { name: 'Team & Advisors', pct: 20, tokens: '20M', vesting: '12-month cliff, 24-month linear', color: '#080808', cliffMonths: 12, linearMonths: 24 },
+        { name: 'Seed Investors', pct: 10, tokens: '10M', vesting: '6-month cliff, 18-month linear', color: '#444444', cliffMonths: 6, linearMonths: 18 },
+        { name: 'Ecosystem/Treasury', pct: 30, tokens: '30M', vesting: 'DAO-controlled', color: '#888888', cliffMonths: 0, linearMonths: 48 },
+        { name: 'Liquidity Mining', pct: 25, tokens: '25M', vesting: '48-month emission', color: '#aaaaaa', cliffMonths: 0, linearMonths: 48 },
+        { name: 'Public Sale/IDO', pct: 10, tokens: '10M', vesting: 'Partial unlock at TGE', color: '#cccccc', cliffMonths: 0, linearMonths: 1 },
+        { name: 'Strategic Partners', pct: 5, tokens: '5M', vesting: '12-month cliff, 12-month linear', color: '#e0e0e0', cliffMonths: 12, linearMonths: 12 },
+    ];
+
+    // Allocation Table
+    (function() {
+        const table = document.getElementById('allocTable');
+        let html = '<div class="tk-alloc-row head"><div></div><div>Category</div><div style="text-align:right">%</div><div style="text-align:right">Tokens</div></div>';
+        ALLOC.forEach(a => {
+            html += '<div class="tk-alloc-row">' +
+                '<div class="tk-alloc-dot" style="background:' + a.color + '"></div>' +
+                '<div>' + a.name + '</div>' +
+                '<div class="tk-alloc-pct">' + a.pct + '%</div>' +
+                '<div class="tk-alloc-tokens">' + a.tokens + '</div></div>';
+        });
+        table.innerHTML = html;
+    })();
+
+    // D3 Donut Chart
+    (function() {
+        const w = 260, h = 260, radius = Math.min(w, h) / 2 - 10;
+        const svg = d3.select('#allocDonut').append('svg').attr('width', w).attr('height', h)
+            .append('g').attr('transform', 'translate(' + w/2 + ',' + h/2 + ')');
+
+        const pie = d3.pie().value(d => d.pct).sort(null).padAngle(0.02);
+        const arc = d3.arc().innerRadius(radius * 0.55).outerRadius(radius);
+
+        svg.selectAll('path').data(pie(ALLOC)).join('path')
+            .attr('d', arc)
+            .attr('fill', d => d.data.color)
+            .attr('stroke', '#fff').attr('stroke-width', 1.5);
+
+        svg.append('text').attr('text-anchor', 'middle').attr('dy', '-0.3em')
+            .style('font-family', 'Alliance No.1, sans-serif').style('font-size', '1.3rem').style('font-weight', '600')
+            .text('100M');
+        svg.append('text').attr('text-anchor', 'middle').attr('dy', '1em')
+            .style('font-family', 'Alliance No.2, sans-serif').style('font-size', '0.6rem').style('fill', '#222')
+            .text('CRTX TOTAL');
+    })();
+
+    // Vesting Schedule Table
+    (function() {
+        const table = document.getElementById('vestingTable');
+        let html = '<div class="tk-vest-row head"><div>Category</div><div style="text-align:right">%</div><div style="text-align:right">Tokens</div><div>Vesting Terms</div><div>Unlocked</div></div>';
+        ALLOC.forEach(a => {
+            const totalMonths = a.cliffMonths + a.linearMonths;
+            const elapsed = Math.min(totalMonths, 6);
+            const unlockPct = a.name === 'Public Sale/IDO' ? 100 :
+                elapsed <= a.cliffMonths ? 0 :
+                Math.min(100, Math.round(((elapsed - a.cliffMonths) / a.linearMonths) * 100));
+            const barColor = unlockPct === 0 ? '#e8e8e8' : a.color;
+            html += '<div class="tk-vest-row">' +
+                '<div style="font-weight:600">' + a.name + '</div>' +
+                '<div style="text-align:right">' + a.pct + '%</div>' +
+                '<div style="text-align:right;color:var(--dim)">' + a.tokens + '</div>' +
+                '<div style="color:var(--dim)">' + a.vesting + '</div>' +
+                '<div><div class="tk-vest-bar"><div class="tk-vest-bar-fill" style="width:' + unlockPct + '%;background:' + barColor + '"></div></div>' +
+                '<span style="font-size:0.55rem;color:var(--dim)">' + unlockPct + '%</span></div></div>';
+        });
+        table.innerHTML = html;
+    })();
+
+    // Vesting Gantt Chart (D3)
+    (function() {
+        const margin = { top: 30, right: 30, bottom: 30, left: 140 };
+        const w = 900, h = 240;
+        const innerW = w - margin.left - margin.right;
+        const innerH = h - margin.top - margin.bottom;
+
+        const svg = d3.select('#vestingGantt').append('svg')
+            .attr('viewBox', '0 0 ' + w + ' ' + h)
+            .attr('width', '100%')
+            .style('font-family', 'Alliance No.2, sans-serif');
+
+        const g = svg.append('g').attr('transform', 'translate(' + margin.left + ',' + margin.top + ')');
+
+        const x = d3.scaleLinear().domain([0, 48]).range([0, innerW]);
+        const y = d3.scaleBand().domain(ALLOC.map(a => a.name)).range([0, innerH]).padding(0.3);
+
+        // X axis (months)
+        const xAxis = g.append('g').attr('transform', 'translate(0,' + innerH + ')')
+            .call(d3.axisBottom(x).ticks(8).tickFormat(d => 'M' + d));
+        xAxis.selectAll('text').style('font-size', '9px').style('fill', '#222');
+        xAxis.selectAll('line').style('stroke', '#ccc');
+        xAxis.select('.domain').style('stroke', '#000');
+
+        // Y axis
+        const yAxis = g.append('g').call(d3.axisLeft(y));
+        yAxis.selectAll('text').style('font-size', '10px').style('fill', '#222');
+        yAxis.selectAll('line').remove();
+        yAxis.select('.domain').style('stroke', '#000');
+
+        // Grid lines
+        g.selectAll('.grid-line').data(d3.range(0, 49, 6)).join('line')
+            .attr('x1', d => x(d)).attr('x2', d => x(d))
+            .attr('y1', 0).attr('y2', innerH)
+            .style('stroke', '#e8e8e8').style('stroke-dasharray', '2,2');
+
+        // Bars
+        ALLOC.forEach(a => {
+            const start = a.cliffMonths;
+            const end = a.cliffMonths + a.linearMonths;
+            // Cliff period (lighter)
+            if (a.cliffMonths > 0) {
+                g.append('rect')
+                    .attr('x', x(0)).attr('y', y(a.name))
+                    .attr('width', x(a.cliffMonths) - x(0)).attr('height', y.bandwidth())
+                    .attr('fill', '#e8e8e8').attr('stroke', '#ccc').attr('stroke-width', 0.5);
+            }
+            // Linear vesting period
+            g.append('rect')
+                .attr('x', x(start)).attr('y', y(a.name))
+                .attr('width', x(end) - x(start)).attr('height', y.bandwidth())
+                .attr('fill', a.color).attr('stroke', '#000').attr('stroke-width', 0.5);
+        });
+
+        // TGE marker
+        g.append('line').attr('x1', x(0)).attr('x2', x(0)).attr('y1', -10).attr('y2', innerH)
+            .style('stroke', 'var(--red)').style('stroke-width', 1.5).style('stroke-dasharray', '4,2');
+        g.append('text').attr('x', x(0) + 4).attr('y', -4)
+            .style('font-size', '9px').style('fill', 'var(--red)').text('TGE');
+
+        // Legend
+        svg.append('rect').attr('x', margin.left).attr('y', 6).attr('width', 10).attr('height', 10).attr('fill', '#e8e8e8').attr('stroke', '#ccc');
+        svg.append('text').attr('x', margin.left + 14).attr('y', 14).style('font-size', '9px').style('fill', '#222').text('Cliff Period');
+        svg.append('rect').attr('x', margin.left + 90).attr('y', 6).attr('width', 10).attr('height', 10).attr('fill', '#080808');
+        svg.append('text').attr('x', margin.left + 104).attr('y', 14).style('font-size', '9px').style('fill', '#222').text('Linear Unlock');
+    })();
+
+
+    // Circulating supply — static fallback, overridden by API below
+    function updateCirculatingSupply(circulating, totalSupply) {
+        const pct = ((circulating / totalSupply) * 100).toFixed(1);
+        document.getElementById('circSupplyPct').textContent = pct + '% Circulating';
+        document.getElementById('circSupplyLabel').textContent =
+            circulating.toLocaleString() + ' / ' + totalSupply.toLocaleString() + ' CRTX';
+        setTimeout(function() {
+            document.getElementById('circSupplyBar').style.width = pct + '%';
+            document.getElementById('circSupplyBar').textContent = pct + '%';
+        }, 300);
+    }
+
+    // Static fallback: ~6 months post-TGE estimate
+    (function() {
+        var publicUnlocked = 10000000;
+        var ecoEmitted = Math.round(30000000 * (6/48));
+        var miningEmitted = Math.round(25000000 * (6/48));
+        updateCirculatingSupply(publicUnlocked + ecoEmitted + miningEmitted, 100000000);
+    })();
+    </script>
+
+    <script src="js/config.js"></script>
+    <script src="js/api.js"></script>
+    <script src="js/ticker.js"></script>
+    <script src="js/wallet.js"></script>
+    <script src="js/toast.js"></script>
+
+    <script>
+    // Fetch live tokenomics data from backend
+    (async function() {
+        if (typeof CortexAPI === 'undefined') return;
+        var data = await CortexAPI.get('/token/supply');
+        if (!data) return;
+
+        // Total Supply
+        var ts = data.total_supply_formatted || 100000000;
+        var el = document.getElementById('totalSupplyValue');
+        if (el) el.textContent = ts.toLocaleString();
+
+        // Staking
+        var staked = data.staking && data.staking.total_staked_formatted || 0;
+        var stakedEl = document.getElementById('totalStakedValue');
+        if (stakedEl) stakedEl.textContent = staked > 0 ? staked.toLocaleString() + ' CRTX' : '0 CRTX';
+
+        var rewardRate = data.staking && data.staking.reward_rate_formatted || 0;
+        var rewardSub = document.getElementById('stakingRewardSub');
+        if (rewardSub) rewardSub.textContent = rewardRate > 0
+            ? 'Reward Rate: ' + rewardRate.toFixed(4) + ' CRTX/s'
+            : 'No active staking pool';
+
+        // Treasury
+        var solBal = data.treasury && data.treasury.sol_balance || 0;
+        var treasuryEl = document.getElementById('treasuryBalanceValue');
+        if (treasuryEl) treasuryEl.textContent = solBal > 0 ? solBal.toFixed(4) + ' SOL' : '0 SOL';
+
+        var treasuryAddr = data.treasury && data.treasury.address || '';
+        var addrSub = document.getElementById('treasuryAddrSub');
+        if (addrSub && treasuryAddr) {
+            addrSub.textContent = treasuryAddr.slice(0, 4) + '...' + treasuryAddr.slice(-4);
+            addrSub.title = treasuryAddr;
+        } else if (addrSub) {
+            addrSub.textContent = 'Address unavailable';
+        }
+
+        // Mint address
+        var mint = data.mint || '';
+        var mintEl = document.getElementById('mintAddrValue');
+        if (mintEl && mint) {
+            mintEl.textContent = mint.slice(0, 6) + '...' + mint.slice(-6);
+            mintEl.title = mint;
+        }
+
+        // Program addresses
+        var progs = data.programs || {};
+        var progToken = document.getElementById('progToken');
+        var progTreasury = document.getElementById('progTreasury');
+        var progStaking = document.getElementById('progStaking');
+        if (progToken && progs.token) { progToken.textContent = progs.token; progToken.title = progs.token; }
+        if (progTreasury && progs.treasury) { progTreasury.textContent = progs.treasury; progTreasury.title = progs.treasury; }
+        if (progStaking && progs.staking) { progStaking.textContent = progs.staking; progStaking.title = progs.staking; }
+
+        // Circulating supply: total - staked (simplified on-chain estimate)
+        if (ts > 0) {
+            var circulating = ts - staked;
+            if (circulating < 0) circulating = ts;
+            updateCirculatingSupply(circulating, ts);
+        }
+    })();
+
+    // Fetch holder distribution data
+    (async function() {
+        if (typeof CortexAPI === 'undefined') return;
+        var data = await CortexAPI.get('/token/holders');
+        if (!data) return;
+
+        // Holder count in top metrics
+        var countEl = document.getElementById('holderCountValue');
+        if (countEl) countEl.textContent = (data.total_holders || 0).toLocaleString();
+
+        var riskEl = document.getElementById('holderRiskSub');
+        if (riskEl) {
+            var risk = data.concentration_risk || 'unknown';
+            riskEl.textContent = 'Concentration: ' + risk;
+            if (risk === 'critical' || risk === 'high') riskEl.className = 'tk-metric-sub text-red';
+            else if (risk === 'low') riskEl.className = 'tk-metric-sub text-green';
+        }
+
+        // Distribution metrics
+        var top10 = document.getElementById('top10PctValue');
+        if (top10) top10.textContent = (data.top10_pct || 0).toFixed(1) + '%';
+
+        var top50 = document.getElementById('top50PctValue');
+        if (top50) top50.textContent = (data.top50_pct || 0).toFixed(1) + '%';
+
+        var hhi = document.getElementById('hhiValue');
+        if (hhi) hhi.textContent = (data.hhi || 0).toFixed(0);
+
+        var conc = document.getElementById('concRiskValue');
+        if (conc) {
+            var riskLabel = data.concentration_risk || 'unknown';
+            conc.textContent = riskLabel.charAt(0).toUpperCase() + riskLabel.slice(1);
+            if (riskLabel === 'critical' || riskLabel === 'high') conc.style.color = 'var(--red)';
+            else if (riskLabel === 'low') conc.style.color = 'var(--green)';
+        }
+
+        // Top holders table (safe DOM construction)
+        var holders = data.top_holders || [];
+        if (holders.length > 0) {
+            var tableEl = document.getElementById('topHoldersTable');
+            if (!tableEl) return;
+            tableEl.textContent = '';
+
+            // Header row
+            var header = document.createElement('div');
+            header.className = 'tk-alloc-row head';
+            header.style.gridTemplateColumns = '30px 1fr 80px 60px';
+            ['#', 'Wallet', 'Amount', '%'].forEach(function(t, i) {
+                var cell = document.createElement('div');
+                cell.textContent = t;
+                if (i >= 2) cell.style.textAlign = 'right';
+                header.appendChild(cell);
+            });
+            tableEl.appendChild(header);
+
+            // Data rows
+            holders.slice(0, 10).forEach(function(h, i) {
+                var row = document.createElement('div');
+                row.className = 'tk-alloc-row';
+                row.style.gridTemplateColumns = '30px 1fr 80px 60px';
+
+                var idxCell = document.createElement('div');
+                idxCell.textContent = String(i + 1);
+                idxCell.style.color = 'var(--dim)';
+                row.appendChild(idxCell);
+
+                var addrCell = document.createElement('div');
+                var owner = h.owner || '';
+                addrCell.textContent = owner.slice(0, 4) + '...' + owner.slice(-4);
+                addrCell.title = owner;
+                addrCell.style.fontFamily = 'var(--font-mono)';
+                addrCell.style.fontSize = '0.6rem';
+                row.appendChild(addrCell);
+
+                var amtCell = document.createElement('div');
+                amtCell.textContent = (h.amount / 1e9).toLocaleString(undefined, {maximumFractionDigits: 0});
+                amtCell.style.textAlign = 'right';
+                row.appendChild(amtCell);
+
+                var pctCell = document.createElement('div');
+                pctCell.className = 'tk-alloc-pct';
+                pctCell.textContent = (h.pct || 0).toFixed(2) + '%';
+                row.appendChild(pctCell);
+
+                tableEl.appendChild(row);
+            });
+        }
+    })();
+    </script>
+</body>
+</html>

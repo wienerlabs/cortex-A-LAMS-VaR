@@ -21,8 +21,10 @@ __all__ = [
     "get_pipeline_status",
     "subscribe_execution_events",
     "unsubscribe_execution_events",
+    "restore_execution_log",
 ]
 
+import json
 import logging
 import time
 from collections import deque
@@ -34,6 +36,7 @@ from cortex.config import (
     EXECUTION_ENABLED,
     EXECUTION_MAX_SLIPPAGE_BPS,
     EXECUTION_MEV_PROTECTION,
+    PERSISTENCE_KEY_PREFIX,
     SIMULATION_MODE,
     TRADING_MODE,
 )
@@ -42,6 +45,9 @@ logger = logging.getLogger(__name__)
 
 _execution_log: list[dict[str, Any]] = []
 _event_subscribers: list[deque] = []
+
+EXECUTION_LOG_REDIS_KEY = f"{PERSISTENCE_KEY_PREFIX}execution_log"
+EXECUTION_LOG_MAX_SIZE = 500
 
 
 def _get_request_id() -> str | None:
@@ -67,13 +73,68 @@ def unsubscribe_execution_events(q: deque) -> None:
         _event_subscribers.remove(q)
 
 
+def _persist_entry_to_redis(entry: dict[str, Any]) -> None:
+    """Fire-and-forget: push execution log entry to Redis LIST."""
+    from cortex.persistence import _redis_available, _redis_client
+    if not _redis_available or _redis_client is None:
+        return
+    try:
+        import asyncio
+        loop = asyncio.get_running_loop()
+        loop.create_task(_async_persist_entry(entry))
+    except RuntimeError:
+        pass
+
+
+async def _async_persist_entry(entry: dict[str, Any]) -> None:
+    """Push entry to Redis LIST (newest at head), trim to max size."""
+    from cortex.persistence import _redis_available, _redis_client
+    if not _redis_available or _redis_client is None:
+        return
+    try:
+        data = json.dumps(entry, default=str).encode()
+        await _redis_client.lpush(EXECUTION_LOG_REDIS_KEY, data)
+        await _redis_client.ltrim(EXECUTION_LOG_REDIS_KEY, 0, EXECUTION_LOG_MAX_SIZE - 1)
+    except Exception:
+        logger.warning("Failed to persist execution log entry to Redis", exc_info=True)
+
+
+async def restore_execution_log() -> int:
+    """Load execution log from Redis into memory on startup. Returns count."""
+    from cortex.persistence import _redis_available, _redis_client
+    if not _redis_available or _redis_client is None:
+        return 0
+
+    try:
+        raw_entries = await _redis_client.lrange(EXECUTION_LOG_REDIS_KEY, 0, -1)
+        if not raw_entries:
+            return 0
+
+        restored: list[dict[str, Any]] = []
+        for raw in reversed(raw_entries):  # reverse: Redis LIST has newest first
+            try:
+                entry = json.loads(raw)
+                restored.append(entry)
+            except Exception:
+                logger.warning("Skipping corrupt execution log entry from Redis")
+
+        _execution_log.clear()
+        _execution_log.extend(restored)
+        logger.info("Restored %d execution log entries from Redis", len(restored))
+        return len(restored)
+    except Exception:
+        logger.warning("Failed to restore execution log from Redis", exc_info=True)
+        return 0
+
+
 def _log_execution(entry: dict[str, Any]) -> None:
     request_id = _get_request_id()
     if request_id:
         entry["request_id"] = request_id
     _execution_log.append(entry)
-    if len(_execution_log) > 500:
+    if len(_execution_log) > EXECUTION_LOG_MAX_SIZE:
         _execution_log.pop(0)
+    _persist_entry_to_redis(entry)
     _broadcast_event(entry)
 
 
@@ -203,6 +264,34 @@ def execute_trade(
             entry["original_amount"] = entry["amount"]
             entry["amount"] = amount
             logger.info("Trade size adjusted to %.2f for %s", amount, token_short)
+
+    # Vault TVL cap — ensure trade doesn't exceed vault capacity
+    try:
+        from cortex.vault_delta import get_tracker, VAULT_DELTA_ENABLED
+        from cortex.config import VAULT_DELTA_ENABLED as VD_FLAG
+        if VD_FLAG:
+            tracker = get_tracker()
+            all_deltas = tracker.get_all_deltas()
+            if all_deltas:
+                # Use the first available vault's TVL as capital base
+                for vid, delta in all_deltas.items():
+                    snaps = tracker._snapshots.get(vid)
+                    if snaps:
+                        current_tvl = snaps[-1].total_assets
+                        max_trade_pct = 0.10  # max 10% of vault per trade
+                        max_size = current_tvl * max_trade_pct
+                        if trade_size_usd > max_size > 0:
+                            entry["vault_capped"] = True
+                            entry["vault_tvl"] = current_tvl
+                            entry["original_trade_size"] = trade_size_usd
+                            amount = amount * (max_size / trade_size_usd)
+                            trade_size_usd = max_size
+                            entry["amount"] = amount
+                            entry["trade_size_usd"] = trade_size_usd
+                            logger.info("Trade capped by vault TVL ($%.0f, max %.0f)", current_tvl, max_size)
+                    break  # use first vault
+    except Exception as e:
+        logger.debug("Vault TVL cap check skipped: %s", e)
 
     if SIMULATION_MODE:
         entry.update({"status": "simulated", "reason": "simulation_mode"})

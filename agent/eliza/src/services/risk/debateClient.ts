@@ -19,6 +19,14 @@ import type { DebateResult, OutcomeCircuitBreakerStatus } from './types.js';
 
 const DEFAULT_API_URL = process.env.CORTEX_API_URL || 'http://localhost:8000/api/v1';
 const DEFAULT_TIMEOUT_MS = parseInt(process.env.DEBATE_TIMEOUT_MS || '10000', 10);
+const CORTEX_API_KEY = process.env.CORTEX_API_KEY || '';
+
+function cortexHeaders(json = true): Record<string, string> {
+  const h: Record<string, string> = {};
+  if (json) h['Content-Type'] = 'application/json';
+  if (CORTEX_API_KEY) h['X-API-Key'] = CORTEX_API_KEY;
+  return h;
+}
 
 interface DebateClientConfig {
   apiUrl: string;
@@ -59,7 +67,7 @@ export class DebateClient {
     try {
       const response = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: cortexHeaders(),
         body: JSON.stringify({
           token: params.token,
           direction: params.direction,
@@ -206,7 +214,7 @@ export class DebateClient {
     try {
       const response = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: cortexHeaders(),
         body: JSON.stringify({
           pnl: params.pnl,
           size: params.size,

@@ -1,0 +1,70 @@
+/* === TOKENOMICS PAGE-SPECIFIC STYLES === */
+
+/* Token metrics grid */
+.tk-metrics { display: grid; grid-template-columns: repeat(6, 1fr); border-bottom: 1px solid var(--border); }
+.tk-metric { padding: 1rem; border-right: 1px solid var(--border); text-align: center; }
+.tk-metric:last-child { border-right: none; }
+.tk-metric-label { font-size: 0.6rem; text-transform: uppercase; color: var(--dim); margin-bottom: 0.25rem; }
+.tk-metric-value { font-family: var(--font-main); font-size: 1.2rem; font-weight: 600; }
+.tk-metric-sub { font-size: 0.55rem; color: var(--dim); margin-top: 0.15rem; }
+
+/* Allocation donut + table */
+.tk-alloc-wrap { display: grid; grid-template-columns: 1fr 1fr; border-bottom: 1px solid var(--border); }
+.tk-donut { padding: 1.5rem; border-right: 1px solid var(--border); display: flex; align-items: center; justify-content: center; }
+.tk-alloc-table { padding: 0; }
+.tk-alloc-row { display: grid; grid-template-columns: 12px 1fr 50px 60px; gap: 8px; align-items: center; padding: 0.6rem 1rem; border-bottom: 1px solid var(--border); font-size: 0.65rem; }
+.tk-alloc-row:last-child { border-bottom: none; }
+.tk-alloc-row.head { background: #f5f5f5; font-weight: 600; color: var(--dim); font-size: 0.6rem; }
+.tk-alloc-dot { width: 10px; height: 10px; border-radius: 2px; }
+.tk-alloc-pct { text-align: right; font-weight: 600; }
+.tk-alloc-tokens { text-align: right; color: var(--dim); }
+
+/* Vesting schedule table */
+.tk-vesting-table { border-bottom: 1px solid var(--border); }
+.tk-vest-row { display: grid; grid-template-columns: 1fr 60px 80px 1fr 120px; gap: 8px; align-items: center; padding: 0.6rem 1rem; border-bottom: 1px solid var(--border); font-size: 0.65rem; }
+.tk-vest-row:last-child { border-bottom: none; }
+.tk-vest-row.head { background: #f5f5f5; font-weight: 600; color: var(--dim); font-size: 0.6rem; }
+.tk-vest-bar { height: 4px; background: #e8e8e8; position: relative; }
+.tk-vest-bar-fill { height: 100%; transition: width 1s ease; }
+
+/* Gantt chart */
+.tk-gantt { padding: 1.5rem; border-bottom: 1px solid var(--border); overflow-x: auto; }
+
+/* Utility grid */
+.tk-utility-grid { display: grid; grid-template-columns: repeat(4, 1fr); border-bottom: 1px solid var(--border); }
+.tk-utility-card { padding: 1rem; border-right: 1px solid var(--border); }
+.tk-utility-card:last-child { border-right: none; }
+.tk-utility-idx { font-size: 0.55rem; color: var(--dim); text-transform: uppercase; margin-bottom: 0.35rem; }
+.tk-utility-name { font-family: var(--font-main); font-size: 0.85rem; font-weight: 600; margin-bottom: 0.35rem; }
+.tk-utility-desc { font-size: 0.6rem; color: var(--dim); line-height: 1.6; }
+
+/* Technical stack grid */
+.tk-stack-grid { display: grid; grid-template-columns: repeat(3, 1fr); border-bottom: 1px solid var(--border); }
+.tk-stack-item { padding: 0.75rem 1rem; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+.tk-stack-item:nth-child(3n) { border-right: none; }
+.tk-stack-label { font-size: 0.55rem; text-transform: uppercase; color: var(--dim); margin-bottom: 0.15rem; }
+.tk-stack-value { font-size: 0.75rem; font-weight: 600; }
+
+/* Supply bar */
+.tk-supply-section { padding: 1rem; border-bottom: 1px solid var(--border); }
+.tk-supply-bar { height: 24px; background: #e8e8e8; position: relative; margin-bottom: 0.5rem; }
+.tk-supply-fill { height: 100%; background: var(--fg); transition: width 2s ease; display: flex; align-items: center; justify-content: flex-end; padding-right: 8px; color: var(--bg); font-size: 0.6rem; font-weight: 600; }
+.tk-supply-labels { display: flex; justify-content: space-between; font-size: 0.55rem; color: var(--dim); }
+
+/* DEX grid */
+.tk-dex-grid { display: grid; grid-template-columns: repeat(6, 1fr); border-bottom: 1px solid var(--border); }
+.tk-dex-item { padding: 0.75rem; text-align: center; border-right: 1px solid var(--border); font-size: 0.65rem; }
+.tk-dex-item:last-child { border-right: none; }
+.tk-dex-name { font-weight: 600; margin-bottom: 0.15rem; }
+.tk-dex-type { font-size: 0.5rem; color: var(--dim); }
+
+/* Responsive */
+@media (max-width: 960px) {
+    .tk-metrics { grid-template-columns: repeat(3, 1fr); }
+    .tk-alloc-wrap { grid-template-columns: 1fr; }
+    .tk-donut { border-right: none; border-bottom: 1px solid var(--border); }
+    .tk-utility-grid { grid-template-columns: repeat(2, 1fr); }
+    .tk-stack-grid { grid-template-columns: 1fr; }
+    .tk-dex-grid { grid-template-columns: repeat(3, 1fr); }
+    .tk-vest-row { grid-template-columns: 1fr 50px 60px 1fr; }
+}

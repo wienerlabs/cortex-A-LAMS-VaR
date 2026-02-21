@@ -508,6 +508,28 @@ export class RiskEngineClient {
     return this.get("/api/v1/execution/stats");
   }
 
+  // ── Strategy & Trade Mode ──
+
+  /** Get strategy configuration with circuit breaker state */
+  async strategyConfig(): Promise<Record<string, unknown>> {
+    return this.get("/api/v1/strategies/config");
+  }
+
+  /** Toggle a strategy's enabled state */
+  async strategyToggle(name: string): Promise<Record<string, unknown>> {
+    return this.post(`/api/v1/strategies/${encodeURIComponent(name)}/toggle`);
+  }
+
+  /** Get current trade mode (autonomous | semi-auto | manual) */
+  async getTradeMode(): Promise<{ mode: string; timestamp: number }> {
+    return this.get("/api/v1/strategies/trade-mode");
+  }
+
+  /** Set trade mode */
+  async setTradeMode(mode: "autonomous" | "semi-auto" | "manual"): Promise<{ mode: string; timestamp: number }> {
+    return this.post("/api/v1/strategies/trade-mode", { mode });
+  }
+
   // ── DexScreener DEX ──
 
   async dexPrice(tokenAddress: string): Promise<Record<string, unknown>> {

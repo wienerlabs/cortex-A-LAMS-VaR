@@ -1,19 +1,100 @@
 """Strategy configuration endpoint — serves live strategy config to the dashboard."""
 
 import copy
+import json
 import logging
 import time
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from cortex.config import PERSISTENCE_KEY_PREFIX
+
 router = APIRouter(tags=["strategies"])
 
 logger = logging.getLogger(__name__)
 
-# In-memory trade mode store (resets on restart; Redis persistence is a future improvement)
 _TRADE_MODE: str = "autonomous"
 VALID_TRADE_MODES = {"autonomous", "semi-auto", "manual"}
+
+# Redis keys for persistence
+_REDIS_KEY_TRADE_MODE = f"{PERSISTENCE_KEY_PREFIX}strategy:trade_mode"
+_REDIS_KEY_STRATEGY_TOGGLES = f"{PERSISTENCE_KEY_PREFIX}strategy:toggles"
+
+
+def _redis_client():
+    """Get persistence Redis client if available."""
+    try:
+        from cortex.persistence import _redis_available, _redis_client as client
+        if _redis_available and client is not None:
+            return client
+    except Exception:
+        pass
+    return None
+
+
+def _persist_trade_mode(mode: str) -> None:
+    """Fire-and-forget: save trade mode to Redis."""
+    client = _redis_client()
+    if not client:
+        return
+    try:
+        import asyncio
+        loop = asyncio.get_running_loop()
+        loop.create_task(client.set(_REDIS_KEY_TRADE_MODE, mode))
+    except RuntimeError:
+        pass
+
+
+def _persist_strategy_toggle(key: str, enabled: bool) -> None:
+    """Fire-and-forget: save strategy toggle state to Redis hash."""
+    client = _redis_client()
+    if not client:
+        return
+    try:
+        import asyncio
+        loop = asyncio.get_running_loop()
+        loop.create_task(client.hset(_REDIS_KEY_STRATEGY_TOGGLES, key, json.dumps(enabled)))
+    except RuntimeError:
+        pass
+
+
+async def restore_strategy_state() -> None:
+    """Restore strategy toggles and trade mode from Redis on startup."""
+    global _TRADE_MODE
+    client = _redis_client()
+    if not client:
+        return
+
+    try:
+        mode = await client.get(_REDIS_KEY_TRADE_MODE)
+        if mode:
+            decoded = mode.decode() if isinstance(mode, bytes) else mode
+            if decoded in VALID_TRADE_MODES:
+                _TRADE_MODE = decoded
+                logger.info("Restored trade mode from Redis: %s", _TRADE_MODE)
+    except Exception:
+        logger.warning("Failed to restore trade mode from Redis", exc_info=True)
+
+    try:
+        from cortex.config import STRATEGY_CONFIG
+        toggles = await client.hgetall(_REDIS_KEY_STRATEGY_TOGGLES)
+        if not toggles:
+            return
+        count = 0
+        for raw_key, raw_val in toggles.items():
+            key = raw_key.decode() if isinstance(raw_key, bytes) else raw_key
+            val = json.loads(raw_val)
+            for strat in STRATEGY_CONFIG:
+                if strat.get("key") == key:
+                    strat["enabled"] = val
+                    strat["status"] = "running" if val else "paused"
+                    count += 1
+                    break
+        if count:
+            logger.info("Restored %d strategy toggle(s) from Redis", count)
+    except Exception:
+        logger.warning("Failed to restore strategy toggles from Redis", exc_info=True)
 
 
 class TradeModeUpdate(BaseModel):
@@ -70,6 +151,7 @@ def _do_toggle(name: str) -> dict:
         if strat.get("key") == name or strat.get("name") == name:
             strat["enabled"] = not strat.get("enabled", True)
             strat["status"] = "running" if strat["enabled"] else "paused"
+            _persist_strategy_toggle(strat["key"], strat["enabled"])
             return {
                 "strategy": strat["key"],
                 "name": strat["name"],
@@ -122,5 +204,6 @@ def set_trade_mode(body: TradeModeUpdate):
             detail=f"Invalid mode '{mode}'. Must be one of: {', '.join(sorted(VALID_TRADE_MODES))}",
         )
     _TRADE_MODE = mode
+    _persist_trade_mode(mode)
     logger.info("Trade mode changed to %s", mode)
     return {"mode": _TRADE_MODE, "timestamp": time.time()}
